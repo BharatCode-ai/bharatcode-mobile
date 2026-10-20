@@ -13,6 +13,7 @@ test('Desktop history uses legacy parts, preserves cursor and never switches exe
     if (path === '/session/ses_one') return {data: {directory:'/project',agent:'build'}}
     if (path.startsWith('/session/ses_one/message?')) return {data: [{info:{id:'msg_one',role:'assistant'},parts:[{id:'part_one',type:'text',text:'Existing Desktop response'}]}],cursor:'older'}
     if (path.includes('/prompt_async')) return {data:undefined}
+    if (path.includes('/message/msg_stable?')) return {data:{info:{id:'msg_stable',role:'user'},parts:[{type:'text',text:'Continue the same work'}]}}
     throw new Error(path)
   }
   const api = await createDesktopAPI({request, storePath:join(root,'admissions.json')})
@@ -59,4 +60,37 @@ test('Desktop request decisions verify session ownership before reply',async t=>
   const api=await createDesktopAPI({request,storePath:join(root,'admissions.json')})
   await assert.rejects(api.handle('POST','/api/session/ses_one/permission/per_one/reply',{reply:'once'}),/resolved|unavailable/)
   assert.equal(replies,0)
+})
+
+test('a successful async acknowledgement without a stored message stays unresolved',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'bc-desktop-api-'));t.after(()=>rm(root,{recursive:true,force:true}))
+  let submissions=0, reads=0
+  const request=async(path)=>{
+    if(path==='/session/ses_one')return {data:{directory:'/work'}}
+    if(path.includes('/prompt_async')){submissions++;return {data:undefined}}
+    reads++;throw Object.assign(new Error('not stored'),{status:404})
+  }
+  const api=await createDesktopAPI({request,storePath:join(root,'admissions.json')})
+  const prompt={id:'msg_one',prompt:{text:'Keep this draft'}}
+  await assert.rejects(api.handle('POST','/api/session/ses_one/prompt',prompt),/unconfirmed/)
+  const reopened=await createDesktopAPI({request,storePath:join(root,'admissions.json')})
+  await assert.rejects(reopened.handle('POST','/api/session/ses_one/prompt',prompt),/unconfirmed/)
+  assert.equal(submissions,1);assert.ok(reads>0)
+})
+test('confirmed mobile selections are consumed and a later Desktop choice wins',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'bc-desktop-api-'));t.after(()=>rm(root,{recursive:true,force:true}))
+  let current={directory:'/work',agent:'build',model:{id:'desktop_A',providerID:'provider'}}
+  const prompts=[]
+  const request=async(path,method,body)=>{
+    if(path==='/session/ses_one')return {data:current}
+    if(path.includes('/prompt_async')){prompts.push(body);return {data:undefined}}
+    const id=/message\/(msg_[a-z]+)\?/.exec(path)?.[1]
+    return {data:{info:{id,role:'user'},parts:[{type:'text',text:'Run'}]}}
+  }
+  const api=await createDesktopAPI({request,storePath:join(root,'admissions.json')})
+  await api.handle('POST','/api/session/ses_one/model',{model:{id:'mobile_A',providerID:'provider'}})
+  await api.handle('POST','/api/session/ses_one/prompt',{id:'msg_first',prompt:{text:'Run'}})
+  current={...current,agent:'plan',model:{id:'desktop_B',providerID:'provider'}}
+  await api.handle('POST','/api/session/ses_one/prompt',{id:'msg_second',prompt:{text:'Run'}})
+  assert.equal(prompts[0].model.modelID,'mobile_A');assert.equal(prompts[1].model.modelID,'desktop_B');assert.equal(prompts[1].agent,'plan')
 })

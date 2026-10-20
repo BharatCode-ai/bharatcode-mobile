@@ -5,7 +5,7 @@ import { StringDecoder } from 'node:string_decoder'
 export async function* projectEvents(source, sessionID, options = {}) {
   const decoder = new StringDecoder('utf8')
   let buffer = ''
-  const roles = new Map(), parts = new Map()
+  const roles = new Map(), parts = new Map(), lookedUp = new Set()
   for await (const chunk of source) {
     buffer += decoder.write(chunk)
     let match
@@ -17,9 +17,21 @@ export async function* projectEvents(source, sessionID, options = {}) {
       if (!data) continue
       let event
       try { event = JSON.parse(data) } catch { continue }
+      event.data ??= event.properties
       if (event.data?.sessionID !== sessionID) continue
       if (options.desktop) {
         const data = event.data
+        if (event.type === 'message.part.delta' && !parts.has(data.partID) && options.resolveMessage && !lookedUp.has(data.messageID)) {
+          lookedUp.add(data.messageID)
+          if (lookedUp.size > 2000) lookedUp.delete(lookedUp.values().next().value)
+          try {
+            const message = await options.resolveMessage(data.messageID)
+            if (message?.info?.id === data.messageID) {
+              roles.set(message.info.id, message.info.role)
+              for (const part of message.parts ?? []) parts.set(part.id, part.type)
+            }
+          } catch { /* History refresh recovers completed content if this lookup races removal. */ }
+        }
         if (event.type === 'message.updated' && data.info?.id) roles.set(data.info.id, data.info.role)
         if (event.type === 'message.part.updated' && data.part?.id) parts.set(data.part.id, data.part.type)
         if (roles.size > 2000) roles.delete(roles.keys().next().value)

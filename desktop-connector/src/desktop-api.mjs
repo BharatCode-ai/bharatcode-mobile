@@ -1,5 +1,6 @@
 import { readFile, writeFile, rename } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 
 const fail = (status, message) => Object.assign(new Error(message), { status })
 const normalizedPermission = item => ({ ...item, action: item.permission, resources: item.patterns ?? [] })
@@ -32,6 +33,13 @@ export async function createDesktopAPI({ request, storePath }) {
     if (!value || typeof value.directory !== 'string') throw fail(502,'Desktop session location unavailable')
     locations.add(value.directory)
     return value
+  }
+  async function stored(id, body, directory, signal) {
+    let message
+    try { message = (await request(located(`/session/${id}/message/${body.id}`, directory), 'GET', undefined, signal)).data }
+    catch (error) { if (error.status !== 404) throw error; return false }
+    return message?.info?.id === body.id && message.info.role === 'user' &&
+      (message.parts ?? []).filter(p => p.type === 'text').map(p => p.text).join('') === body.prompt.text
   }
   async function handle(method, raw, body, signal) {
     const url = new URL(raw,'http://localhost'), path = url.pathname
@@ -101,21 +109,31 @@ export async function createDesktopAPI({ request, storePath }) {
       if(previous) {
         // A crash or lost upstream acknowledgement is ambiguous. A matching
         // stored Desktop message proves admission; never blindly execute again.
-        let existing
-        try { existing=(await request(located(`/session/${id}/message/${body.id}`,info.directory),'GET',undefined,signal)).data } catch(error) { if(error.status!==404) throw error }
-        if(existing?.info?.id===body.id && (existing.parts ?? []).filter(p=>p.type==='text').map(p=>p.text).join('')===body.prompt.text) { state.admissions[key]={hash,state:'admitted'}; await save(); return {data:{data:{id:body.id}}} }
+        if (await stored(id,body,info.directory,signal)) {
+          state.admissions[key]={hash,state:'admitted'};
+          if(JSON.stringify(state.selections[id])===JSON.stringify(previous.selection)) delete state.selections[id];
+          await save(); return {data:{data:{id:body.id}}}
+        }
         throw fail(409,'Desktop delivery is unconfirmed. Check the conversation on your computer before continuing.')
       }
       if(Object.keys(state.admissions).length>=10000) throw fail(507,'Mobile admission history is full')
       const operation=(async()=>{
-        state.admissions[key]={hash,state:'forwarding'}; await save()
-        const selection=state.selections[id] ?? {}, model=selection.model ?? info.model
+        const selection=state.selections[id], model=selection?.model ?? info.model
+        state.admissions[key]={hash,state:'forwarding',selection}; await save()
         await request(located(`/session/${id}/prompt_async`,info.directory),'POST',{
-          messageID:body.id, agent:selection.agent ?? info.agent,
+          messageID:body.id, agent:selection?.agent ?? info.agent,
           ...(model ? {model:{providerID:model.providerID,modelID:model.id},variant:model.variant} : {}),
           parts:[{type:'text',text:body.prompt.text}],
         },signal)
-        state.admissions[key]={hash,state:'admitted'}; await save()
+        let confirmed = false
+        for (let attempt = 0; attempt < 30; attempt++) {
+          if (await stored(id, body, info.directory, signal)) { confirmed = true; break }
+          await delay(100, undefined, { signal })
+        }
+        if (!confirmed) throw fail(409, 'Desktop delivery is unconfirmed. Keep this draft and check your computer.')
+        state.admissions[key]={hash,state:'admitted'};
+        if (state.selections[id] === selection) delete state.selections[id];
+        await save()
       })()
       pending.set(key,operation)
       try { await operation } finally { pending.delete(key) }

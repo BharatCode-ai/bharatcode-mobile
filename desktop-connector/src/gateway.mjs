@@ -108,7 +108,12 @@ export async function createGateway(options) {
         res.write(': connected\n\n')
         const heartbeat = setInterval(() => { if (!res.destroyed) res.write(': heartbeat\n\n') }, 10_000)
         try {
-          for await (const event of projectEvents(response.body, live[1], { desktop: options.runtime === 'desktop' })) {
+          for await (const event of projectEvents(response.body, live[1], { desktop: options.runtime === 'desktop', resolveMessage: async id => {
+            if (!/^[A-Za-z0-9_-]+$/.test(id)) return
+            const session = await upstreamJSON('/session/' + live[1], cancellation.signal)
+            if (typeof session.directory !== 'string') return
+            return upstreamJSON(`/session/${live[1]}/message/${id}?` + new URLSearchParams({ directory: session.directory }), cancellation.signal)
+          } })) {
             if (!registry.authenticate(bearer)) break
             if (!res.write(`data: ${JSON.stringify(event)}\n\n`)) await once(res, 'drain', { signal: cancellation.signal })
           }

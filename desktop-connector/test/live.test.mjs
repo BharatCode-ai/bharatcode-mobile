@@ -37,3 +37,10 @@ test('Desktop compatibility events become selected-chat text and request signals
   assert.equal(events[2].data.assistantMessageID,'msg_one')
   assert.equal(JSON.stringify(events).includes('private'),false)
 })
+
+test('attachment after text creation resolves unknown metadata once and streams deltas',async()=>{
+  async function* source(){for(let i=0;i<2;i++)yield Buffer.from(`data: ${JSON.stringify({id:'evt_'+i,type:'message.part.delta',data:{sessionID:'ses_one',messageID:'msg_one',partID:'prt_one',field:'text',delta:'live'}})}\n\n`)}
+  let lookups=0;const events=[]
+  for await(const event of projectEvents(source(),'ses_one',{desktop:true,resolveMessage:async()=>{lookups++;return {info:{id:'msg_one',role:'assistant'},parts:[{id:'prt_one',type:'text'}]}}}))events.push(event)
+  assert.equal(lookups,1);assert.deepEqual(events.map(e=>e.type),['session.next.text.delta','session.next.text.delta'])
+})
