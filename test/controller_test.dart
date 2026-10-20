@@ -220,6 +220,26 @@ void main() {
       await api.stream.close();
     },
   );
+  test('reopening a chat exposes its durable unconfirmed message', () async {
+    final store = const DeviceStore();
+    await store.savePending(computer.id, conversation.id, {
+      'session': conversation.id,
+      'id': 'msg_pending',
+      'text': 'Original message',
+    });
+    final api = FakeApi('pc_one');
+    final controller = AppController(store: store, apiFactory: (_, _) => api);
+    await controller.connectDevice(computer);
+    await controller.selectSession(conversation);
+    expect(controller.error, contains('unconfirmed'));
+    expect(controller.unconfirmedText, 'Original message');
+    controller.restoreUnconfirmedDraft();
+    await controller.send();
+    expect(api.sent.single, contains('msg_pending/Original message'));
+    expect(controller.unconfirmedText, isNull);
+    controller.dispose();
+    await api.stream.close();
+  });
   test('revoked event credentials disable sending immediately', () async {
     final api = FakeApi('pc_one');
     final controller = AppController(apiFactory: (_, _) => api);

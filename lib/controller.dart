@@ -193,6 +193,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> selectSession(SessionSummary session) async {
     selectedID = session.id;
+    error = null;
     resolution = '';
     messageCursor = null;
     _sequence = 0;
@@ -242,7 +243,12 @@ class AppController extends ChangeNotifier {
         _drafts.putIfAbsent(_draftKey, () => saved);
         final pending = await store.pending(device!.id, session.id);
         if (generation != _generation) return;
-        if (pending != null) _pendingPrompts[_draftKey] = pending;
+        if (pending != null) {
+          _pendingPrompts[_draftKey] = pending;
+          error = 'A previous message has unconfirmed delivery. Restore it and retry to check admission safely.';
+        } else {
+          _pendingPrompts.remove(_draftKey);
+        }
         final cached = await store.cache(device!.id, session.id);
         if (generation != _generation) return;
         if (cached != null) {
@@ -694,6 +700,10 @@ class AppController extends ChangeNotifier {
     );
     final pending = _pendingPrompts[key]!;
     if (pending['session'] != session || pending['text'] != text) {
+      assert(() {
+        debugPrint('BCMobile send blocked pending conflict');
+        return true;
+      }());
       sending = false;
       error = 'A previous message has unconfirmed delivery. Restore its text and retry before sending another.';
       changed();
