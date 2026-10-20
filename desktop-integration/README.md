@@ -12,7 +12,7 @@ bun install
 
 Run the integrated development build with its normal Desktop sidecar. This source pin embeds native `/api/session` metadata alongside its compatibility message API. The gateway follows the Desktop UI's compatibility behavior for message history, prompts, requests, configured models, and live events, so both clients use the same conversation and execution engine. Do not set `OPENCODE_SIDECAR_V2=1` for this pin: its separate CLI service branch references an unavailable command.
 
-This adds the connector workspace package, a trusted main-frame IPC action, and **Settings → Mobile devices**. The action can create a pairing QR, approve or decline a phone, revoke one phone, and disable remote access. It follows the Desktop preload boundary and uses typed localization keys.
+This adds the connector workspace package, a trusted main-frame IPC action, and **Settings → Mobile devices** in both the default Settings v2 screen and the older layout. The embedded Desktop server explicitly selects the BharatCode product catalog before loading its runtime, including in a development-branded build; the default upstream development catalog does not expose BharatCode models. The action can create a pairing QR, approve or decline a phone, revoke one phone, and disable remote access. It follows the Desktop preload boundary and uses typed localization keys.
 
 The script checks the source revision and each edit context. It can be run again to refresh the connector and new UI modules. Review the resulting Desktop diff before building. Runtime tests for the connector live in `desktop-connector/test`; the Desktop package's own tests and type checks should also pass.
 
@@ -41,4 +41,10 @@ Run its regression tests with:
 
 ```sh
 python3 -m unittest discover -s desktop-integration/linux-host-browser -p 'test_*.py'
+```
+
+The integration generator also has pin-based regression tests. Point them at a local Desktop clone (the tests create a temporary clean clone and apply the integration twice):
+
+```sh
+BHARATCODE_DESKTOP_SOURCE=/path/to/bharatcode-desktop python3 -m unittest discover -s desktop-integration -p 'test_apply.py'
 ```
