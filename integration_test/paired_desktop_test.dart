@@ -59,117 +59,158 @@ void main() {
       debugPrint('BC_E2E pending_admission_recovered passed');
     }
 
-    // Select through the actual picker, then verify its API selection completes.
-    final choices = await controller.configuration('model');
-    final qwen = choices.where((m) => '${m['name']}'.contains('Qwen')).single;
-    await tester.tap(find.text(controller.modelName));
-    await waitFor(
-      tester,
-      () => find.text('${qwen['name']}').evaluate().isNotEmpty,
-      'Load the Desktop model picker',
-    );
-    await tester.tap(find.text('${qwen['name']}'));
-    await waitFor(
-      tester,
-      () => controller.modelName == qwen['name'],
-      'Select the Desktop model',
-    );
-    await tester.pumpAndSettle();
+    const resumeControls = bool.fromEnvironment('BC_E2E_RESUME_CONTROLS');
+    if (!resumeControls) {
+      // Select through the actual picker, then verify its API selection completes.
+      final choices = await controller.configuration('model');
+      final qwen = choices.where((m) => '${m['name']}'.contains('Qwen')).single;
+      await tester.tap(find.text(controller.modelName));
+      await waitFor(
+        tester,
+        () => find.text('${qwen['name']}').evaluate().isNotEmpty,
+        'Load the Desktop model picker',
+      );
+      await tester.tap(find.text('${qwen['name']}'));
+      await waitFor(
+        tester,
+        () => controller.modelName == qwen['name'],
+        'Select the Desktop model',
+      );
+      await tester.pumpAndSettle();
 
-    expect(
-      controller.unconfirmedText == null,
-      true,
-      reason: 'Resolve the fixture outbox before sending a new test message.',
-    );
-    final previous = controller.messages.map((m) => m.id).toSet();
-    const marker = 'BC_NATIVE_LIVE_OK';
-    const prompt = 'Reply exactly $marker.';
-    await tester.enterText(find.byKey(const Key('composer')), prompt);
-    await tester.pumpAndSettle();
-    expect(
-      controller.draft == prompt,
-      true,
-      reason: 'Typing must update the conversation draft.',
-    );
-    expect(controller.online, true, reason: 'Sending must remain online.');
-    expect(controller.selectedID == fixture.id, true);
-    expect(controller.sending, false);
-    expect(
-      tester
-          .widget<IconButton>(
-            find
-                .ancestor(
-                  of: find.byTooltip('Send message'),
-                  matching: find.byType(IconButton),
-                )
-                .first,
-          )
-          .onPressed,
-      isNotNull,
-    );
-    await tester.tap(find.byTooltip('Send message'));
-    await waitFor(
-      tester,
-      () => controller.draft.isEmpty && !controller.sending,
-      'Confirm native message admission',
-    );
-    expect(controller.unconfirmedText, isNull);
-    expect(
-      controller.messages.any((m) => m.role == 'user' && m.text == prompt),
-      true,
-    );
-    await waitFor(
-      tester,
-      () => controller.messages.any(
-        (m) =>
-            !previous.contains(m.id) &&
-            m.role == 'assistant' &&
-            m.text.contains(marker),
-      ),
-      'Receive the reply in the open conversation without refreshing',
-      timeout: const Duration(minutes: 3),
-    );
-    final composer = tester.widget<TextField>(
-      find.byKey(const Key('composer')),
-    );
-    expect(composer.controller!.text, isEmpty);
-    debugPrint('BC_E2E native_send_and_live_reply passed');
+      expect(
+        controller.unconfirmedText == null,
+        true,
+        reason: 'Resolve the fixture outbox before sending a new test message.',
+      );
+      final previous = controller.messages.map((m) => m.id).toSet();
+      const marker = 'BC_NATIVE_LIVE_OK';
+      const prompt = 'Reply exactly $marker.';
+      await tester.enterText(find.byKey(const Key('composer')), prompt);
+      await tester.pumpAndSettle();
+      expect(
+        controller.draft == prompt,
+        true,
+        reason: 'Typing must update the conversation draft.',
+      );
+      expect(controller.online, true, reason: 'Sending must remain online.');
+      expect(controller.selectedID == fixture.id, true);
+      expect(controller.sending, false);
+      expect(
+        tester
+            .widget<IconButton>(
+              find
+                  .ancestor(
+                    of: find.byTooltip('Send message'),
+                    matching: find.byType(IconButton),
+                  )
+                  .first,
+            )
+            .onPressed,
+        isNotNull,
+      );
+      await tester.tap(find.byTooltip('Send message'));
+      await waitFor(
+        tester,
+        () => controller.draft.isEmpty && !controller.sending,
+        'Confirm native message admission',
+      );
+      expect(controller.unconfirmedText, isNull);
+      expect(
+        controller.messages.any((m) => m.role == 'user' && m.text == prompt),
+        true,
+      );
+      await waitFor(
+        tester,
+        () => controller.messages.any(
+          (m) =>
+              !previous.contains(m.id) &&
+              m.role == 'assistant' &&
+              m.text.contains(marker),
+        ),
+        'Receive the reply in the open conversation without refreshing',
+        timeout: const Duration(minutes: 3),
+      );
+      final composer = tester.widget<TextField>(
+        find.byKey(const Key('composer')),
+      );
+      expect(composer.controller!.text, isEmpty);
+      debugPrint('BC_E2E native_send_and_live_reply passed');
+    }
 
-    if (const bool.fromEnvironment('BC_E2E_CONTROLS')) {
-      final beforeControls = controller.messages.map((m) => m.id).toSet();
+    if (const bool.fromEnvironment('BC_E2E_CONTROLS') || resumeControls) {
+      if (resumeControls) {
+        expect(
+          controller.pendingRequests.isNotEmpty,
+          true,
+          reason: 'Resume only a pending fixture control request.',
+        );
+        expect(
+          controller.messages.any(
+            (m) =>
+                m.role == 'assistant' &&
+                m.text.contains('BC_NATIVE_CONTROLS_OK'),
+          ),
+          false,
+          reason: 'The resumed result must not already exist.',
+        );
+      }
+      final beforeControls = resumeControls
+          ? <String>{}
+          : controller.messages.map((m) => m.id).toSet();
       const controls =
           'First use the question tool to ask "Which check?" with '
           'options "Continue" and "Cancel". After I choose Continue, use bash '
           'to run exactly printf BC_PERMISSION_OK. Then read README.md. '
           'Finally reply exactly BC_NATIVE_CONTROLS_OK. Do not modify files.';
-      await tester.enterText(find.byKey(const Key('composer')), controls);
-      await tester.pump();
-      await tester.tap(find.byTooltip('Send message'));
-      await waitFor(
-        tester,
-        () => controller.pendingRequests.any((r) => r.question),
-        'Receive the real model question',
-        timeout: const Duration(minutes: 3),
-      );
-      await tester.ensureVisible(find.text('BharatCode has a question'));
-      await tester.tap(find.text('BharatCode has a question'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(CheckboxListTile, 'Continue'));
-      await tester.pump();
-      await tester.tap(find.text('Send answer'));
-      await waitFor(
-        tester,
-        () => !controller.pendingRequests.any((r) => r.question),
-        'Resolve the question on Desktop',
-      );
+      if (!resumeControls) {
+        await tester.enterText(find.byKey(const Key('composer')), controls);
+        await tester.pump();
+        await tester.tap(find.byTooltip('Send message'));
+        await waitFor(
+          tester,
+          () => controller.pendingRequests.any((r) => r.question),
+          'Receive the real model question',
+          timeout: const Duration(minutes: 3),
+        );
+      }
+      if (!resumeControls ||
+          controller.pendingRequests.any((r) => r.question)) {
+        await tester.ensureVisible(find.text('BharatCode has a question'));
+        await tester.tap(find.text('BharatCode has a question'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(CheckboxListTile, 'Continue'));
+        await tester.pump();
+        await tester.tap(find.text('Send answer'));
+        await waitFor(
+          tester,
+          () => !controller.pendingRequests.any((r) => r.question),
+          'Resolve the question on Desktop',
+        );
+        await tester.pumpAndSettle();
+      }
       await waitFor(
         tester,
         () => controller.pendingRequests.any((r) => !r.question),
         'Receive the real permission request',
         timeout: const Duration(minutes: 3),
       );
-      await tester.ensureVisible(find.text('Allow once'));
-      await tester.tap(find.text('Allow once'));
+      await tester.pumpAndSettle();
+      if (resumeControls) {
+        expect(
+          controller.pendingRequests
+              .where((r) => !r.question)
+              .every((r) => r.command.contains('BC_PERMISSION_OK')),
+          true,
+          reason: 'Approve only the known fixture command.',
+        );
+      }
+      final allow = find.widgetWithText(FilledButton, 'Allow once');
+      await tester.ensureVisible(allow);
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilledButton>(allow).onPressed, isNotNull);
+      expect(allow.hitTestable(), findsOneWidget);
+      await tester.tap(allow);
       await waitFor(
         tester,
         () => !controller.pendingRequests.any((r) => !r.question),
