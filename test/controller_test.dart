@@ -119,6 +119,44 @@ class FakeApi extends ApiClient {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets(
+    'a transient initial health failure reconnects without tapping Retry',
+    (tester) async {
+      final api = RecoveringApi();
+      final controller = AppController(apiFactory: (_, _) => api);
+      try {
+        await controller.connectDevice(computer);
+        expect(controller.online, isFalse);
+        expect(controller.sessions, isEmpty);
+        api.unavailable = false;
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pump();
+        expect(controller.online, isTrue);
+        expect(controller.error, isNull);
+        expect(controller.sessions.single.id, 'ses_one');
+      } finally {
+        controller.dispose();
+        await api.stream.close();
+      }
+    },
+  );
+  for (final status in [401, 409]) {
+    testWidgets('pairing rejection $status does not retry in the background', (
+      tester,
+    ) async {
+      final api = RecoveringApi()..failureStatus = status;
+      final controller = AppController(apiFactory: (_, _) => api);
+      try {
+        await controller.connectDevice(computer);
+        await tester.pump(const Duration(seconds: 10));
+        expect(controller.online, isFalse);
+        expect(api.healthRequests, 1);
+      } finally {
+        controller.dispose();
+        await api.stream.close();
+      }
+    });
+  }
   test(
     'switching computer during outbox save cannot send to either computer',
     () async {
@@ -419,4 +457,25 @@ class DelayedPageApi extends FakeApi {
   @override
   Future<Map<String, dynamic>> sessionPage({String? cursor, String? search}) =>
       page?.future ?? super.sessionPage(cursor: cursor, search: search);
+}
+
+class RecoveringApi extends FakeApi {
+  RecoveringApi() : super('pc_one');
+  bool unavailable = true;
+  int failureStatus = 0, healthRequests = 0;
+  @override
+  Future<Map<String, dynamic>> request(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    Map<String, String>? query,
+  }) async {
+    if (path.endsWith('health')) {
+      healthRequests++;
+      if (unavailable) {
+        throw ApiException(failureStatus, 'Computer temporarily unavailable');
+      }
+    }
+    return super.request(method, path, body: body, query: query);
+  }
 }

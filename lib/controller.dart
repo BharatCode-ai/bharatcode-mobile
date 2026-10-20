@@ -756,8 +756,24 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  void _startActivityPolling({bool retryConnection = true}) {
+    _activityTimer?.cancel();
+    _activityTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_disposed || previewMode) return;
+      if (!online && selectedID == null) {
+        final target = device;
+        if (retryConnection && target != null) {
+          unawaited(connectDevice(target));
+        }
+      } else {
+        unawaited(_refreshActivity());
+      }
+    });
+  }
+
   Future<void> connectDevice(DesktopDevice next) async {
     final generation = ++_generation;
+    _activityTimer?.cancel();
     final previousSubscription = _subscription,
         previousLive = _liveSubscription;
     await previousSubscription?.cancel();
@@ -777,6 +793,7 @@ class AppController extends ChangeNotifier {
     if (generation != _generation) return;
     final api = _apiFactory(Uri.parse(next.origin), next.token);
     _api = api;
+    var retryConnection = true;
     try {
       final health = await api.request('GET', '/mobile/v1/health');
       if (generation != _generation) return;
@@ -789,15 +806,14 @@ class AppController extends ChangeNotifier {
       }
       await refreshSessions();
       if (generation != _generation) return;
-      _activityTimer = Timer.periodic(
-        const Duration(seconds: 5),
-        (_) => unawaited(_refreshActivity()),
-      );
     } catch (e) {
+      retryConnection =
+          e is! ApiException || (e.status != 401 && e.status != 409);
       if (generation == _generation) _failed(e);
     } finally {
       if (generation == _generation) {
         busy = false;
+        _startActivityPolling(retryConnection: retryConnection);
         changed();
       }
     }
@@ -1101,12 +1117,10 @@ class AppController extends ChangeNotifier {
 
   Future<void> resume() async {
     if (previewMode || _api == null) return;
-    _activityTimer?.cancel();
-    _activityTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => unawaited(_refreshActivity()),
-    );
-    if (selected != null) {
+    _startActivityPolling();
+    if (!online && selectedID == null && device != null) {
+      await connectDevice(device!);
+    } else if (selected != null) {
       await selectSession(selected!);
     } else {
       await refreshSessions();
