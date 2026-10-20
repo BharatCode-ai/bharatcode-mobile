@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bharatcode_mobile/app.dart';
 import 'package:bharatcode_mobile/controller.dart';
+import 'package:bharatcode_mobile/models/models.dart';
 
 void main() {
   Future<void> phoneSize(WidgetTester tester) async {
@@ -69,6 +70,43 @@ void main() {
       expect(find.text('Also check billing'), findsOneWidget);
     },
   );
+  testWidgets('incoming replies follow the bottom without moving a reader', (
+    tester,
+  ) async {
+    await phoneSize(tester);
+    final controller = AppController.preview();
+    await controller.selectSession(controller.sessions.first);
+    await tester.pumpWidget(BharatCodeApp(controller: controller));
+    await tester.pumpAndSettle();
+    controller.messages = [
+      ChatMessage(
+        id: 'long_reply',
+        role: 'assistant',
+        text: List.filled(80, 'A line of the reply.').join('\n\n'),
+      ),
+    ];
+    controller.changed();
+    await tester.pumpAndSettle();
+    final list = find.byType(ListView).first;
+    final scrollable = find
+        .descendant(of: list, matching: find.byType(Scrollable))
+        .first;
+    final position = tester.state<ScrollableState>(scrollable).position;
+    expect(position.extentAfter, lessThan(1));
+    position.jumpTo(0);
+    await tester.pumpAndSettle();
+    controller.messages.add(
+      const ChatMessage(
+        id: 'next_reply',
+        role: 'assistant',
+        text: 'Another reply',
+      ),
+    );
+    controller.changed();
+    await tester.pumpAndSettle();
+    expect(position.pixels, 0);
+    controller.dispose();
+  });
   testWidgets(
     'approval resolves through the controller and clears attention count',
     (tester) async {

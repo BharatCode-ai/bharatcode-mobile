@@ -21,11 +21,12 @@ class _ConversationState extends State<ConversationScreen> {
     text: widget.controller.draft,
   );
   final scroll = ScrollController();
-  bool nearBottom = true;
+  bool nearBottom = true, _scrollScheduled = false;
   AppController get c => widget.controller;
   @override
   void initState() {
     super.initState();
+    _followTail();
     scroll.addListener(() {
       final next = !scroll.hasClients || scroll.position.extentAfter < 120;
       if (next != nearBottom) setState(() => nearBottom = next);
@@ -35,12 +36,24 @@ class _ConversationState extends State<ConversationScreen> {
   @override
   void didUpdateWidget(covariant ConversationScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _followTail();
     if (composer.text != c.draft) {
       composer.value = TextEditingValue(
         text: c.draft,
         selection: TextSelection.collapsed(offset: c.draft.length),
       );
     }
+  }
+
+  void _followTail() {
+    if (!nearBottom || _scrollScheduled) return;
+    _scrollScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollScheduled = false;
+      if (mounted && nearBottom && scroll.hasClients) {
+        scroll.jumpTo(scroll.position.maxScrollExtent);
+      }
+    });
   }
 
   @override
