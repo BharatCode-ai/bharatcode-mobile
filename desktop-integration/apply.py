@@ -50,6 +50,7 @@ edit("packages/desktop/src/main/index.ts", '  registerIpcHandlers({\n    account
 edit("packages/desktop/src/main/index.ts", '      setSidecarAuthorization(sidecar)', '      mobileConnection = sidecar\n      setSidecarAuthorization(sidecar)')
 edit("packages/desktop/src/main/index.ts", '    setSidecarAuthorization(connection)', '    mobileConnection = connection\n    setSidecarAuthorization(connection)')
 edit("packages/desktop/src/main/index.ts", '  const windows = restoreMainWindows()', '  void Effect.runPromise(Deferred.await(serverReady)).then(() => mobileAccess.restore()).catch(() => {})\n  const windows = restoreMainWindows()')
+edit("packages/desktop/electron.vite.config.ts", '      externalizeDeps: { include: [nodePtyPkg] },', '      externalizeDeps: {\n        include: [nodePtyPkg],\n        exclude: ["@bharatcode/mobile-connector", "effect"],\n      },')
 edit("packages/app/src/i18n/en.ts", 'export const dict = {', 'import { MOBILE_ENGLISH } from "./mobile"\n\nexport const dict = {\n  ...MOBILE_ENGLISH,')
 edit("packages/app/src/components/dialog-settings.tsx", 'export const DialogSettings:', 'import { SettingsMobile } from "./settings-mobile"\n\nexport const DialogSettings:')
 edit("packages/app/src/components/dialog-settings.tsx", '                    <Tabs.Trigger value="general">', '                    <Show when={platform.mobileAccess}><Tabs.Trigger value="mobile"><Icon name="server" />{language.t("mobile.title")}</Tabs.Trigger></Show>\n                    <Tabs.Trigger value="general">')
