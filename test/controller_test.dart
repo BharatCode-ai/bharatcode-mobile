@@ -64,7 +64,9 @@ class FakeApi extends ApiClient {
   };
   @override
   Stream<Map<String, dynamic>> liveEvents(String session) => stream.stream;
+  String? wireCursor;
   int messageReads = 0;
+  List<Map<String, dynamic>> wireMessages = [];
   List<Map<String, dynamic>> pendingPermissions = [];
   final sent = <String>[];
   final stream = StreamController<Map<String, dynamic>>.broadcast();
@@ -97,7 +99,10 @@ class FakeApi extends ApiClient {
     String? cursor,
   }) async {
     messageReads++;
-    return {'data': []};
+    return {
+      'data': wireMessages,
+      'cursor': {'next': wireCursor},
+    };
   }
 
   @override
@@ -203,6 +208,43 @@ void main() {
       await api.stream.close();
     },
   );
+  test('mid-response deltas retain projected prefix and authoritative recovery wins', () async {
+    final api = FakeApi('pc_one');
+    Map<String, dynamic> message(String text) => {
+      'id': 'msg_one',
+      'type': 'assistant',
+      'content': [
+        {'id': 'txt_one', 'type': 'text', 'text': text},
+      ],
+    };
+    api.wireMessages = [message('Hello')];
+    final controller = AppController(apiFactory: (_, _) => api);
+    await controller.connectDevice(computer);
+    await controller.selectSession(conversation);
+    api.stream.add({
+      'id': 'evt_text',
+      'type': 'session.next.text.delta',
+      'data': {
+        'sessionID': 'ses_one',
+        'assistantMessageID': 'msg_one',
+        'textID': 'txt_one',
+        'delta': ' world',
+      },
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.messages.single.text, 'Hello world');
+    api.wireMessages = [message('Hello world, recovered')];
+    api.stream.add({
+      'id': 'evt_end',
+      'type': 'session.next.step.ended',
+      'durable': {'seq': 2},
+      'data': {'sessionID': 'ses_one'},
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    expect(controller.messages.single.text, 'Hello world, recovered');
+    controller.dispose();
+    await api.stream.close();
+  });
   test('continuous events refresh before the stream goes quiet', () async {
     final api = FakeApi('pc_one');
     final controller = AppController(apiFactory: (_, _) => api);
@@ -222,6 +264,83 @@ void main() {
     controller.dispose();
     await api.stream.close();
   });
+  test(
+    'preview supersedes a connection awaiting subscription cancellation',
+    () async {
+      final api = DelayedCancelApi();
+      final controller = AppController(apiFactory: (_, _) => api);
+      await controller.connectDevice(computer);
+      await controller.selectSession(conversation);
+      api.cancellation = Completer<void>();
+      final connecting = controller.connectDevice(otherComputer);
+      await Future<void>.delayed(Duration.zero);
+      controller.enterPreview();
+      api.cancellation!.complete();
+      await connecting;
+      expect(controller.previewMode, true);
+      expect(controller.device!.id, 'preview');
+      expect(controller.sessions, isNotEmpty);
+      controller.dispose();
+      await api.durable.close();
+      await api.stream.close();
+    },
+  );
+  test(
+    'new computer can load while an old computer page is unfinished',
+    () async {
+      final first = DelayedPageApi(), second = FakeApi('pc_two');
+      final controller = AppController(
+        apiFactory: (_, token) => token == 'one' ? first : second,
+      );
+      await controller.connectDevice(computer);
+      first.page = Completer<Map<String, dynamic>>();
+      final loading = controller.refreshSessions();
+      await Future<void>.delayed(Duration.zero);
+      await controller.connectDevice(otherComputer);
+      expect(controller.sessions.single.id, 'ses_one');
+      first.page!.complete({
+        'data': [
+          {'id': 'ses_stale', 'title': 'Wrong computer'},
+        ],
+      });
+      await loading;
+      expect(controller.device!.id, 'pc_two');
+      expect(controller.sessions.single.id, 'ses_one');
+      controller.dispose();
+      await first.stream.close();
+      await second.stream.close();
+    },
+  );
+  test(
+    'recovery after many new messages resets to a contiguous window and cursor',
+    () async {
+      final api = FakeApi('pc_one')..wireCursor = 'before_51';
+      Map<String, dynamic> message(int index) => {
+        'id': 'msg_$index',
+        'type': 'user',
+        'text': 'Message $index',
+      };
+      api.wireMessages = List.generate(50, (i) => message(100 - i));
+      final controller = AppController(apiFactory: (_, _) => api);
+      await controller.connectDevice(computer);
+      await controller.selectSession(conversation);
+      expect(controller.messages.first.id, 'msg_51');
+      api.wireMessages = List.generate(50, (i) => message(200 - i));
+      api.wireCursor = 'before_151';
+      api.stream.add({
+        'id': 'evt_recovered',
+        'type': 'session.next.step.ended',
+        'durable': {'seq': 3},
+        'data': {'sessionID': 'ses_one'},
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      expect(controller.messages.length, 50);
+      expect(controller.messages.first.id, 'msg_151');
+      expect(controller.messageCursor, 'before_151');
+      controller.dispose();
+      await api.stream.close();
+    },
+  );
   test(
     'server search and cursor expose a conversation beyond the first page',
     () async {
@@ -262,4 +381,23 @@ class PagedApi extends FakeApi {
       },
     };
   }
+}
+
+class DelayedCancelApi extends FakeApi {
+  DelayedCancelApi() : super('pc_one');
+  Completer<void>? cancellation;
+  late final durable = StreamController<Map<String, dynamic>>(
+    onCancel: () => cancellation?.future,
+  );
+  @override
+  Stream<Map<String, dynamic>> events(String session, {int after = 0}) =>
+      durable.stream;
+}
+
+class DelayedPageApi extends FakeApi {
+  DelayedPageApi() : super('pc_one');
+  Completer<Map<String, dynamic>>? page;
+  @override
+  Future<Map<String, dynamic>> sessionPage({String? cursor, String? search}) =>
+      page?.future ?? super.sessionPage(cursor: cursor, search: search);
 }

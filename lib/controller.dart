@@ -14,7 +14,7 @@ class AppController extends ChangeNotifier {
   String? error, confirmation, selectedID, messageCursor, sessionCursor;
   String search = '', projectFilter = 'All projects', resolution = '';
   String agentName = 'Build', modelName = 'Desktop model';
-  int tab = 0, _generation = 0, _sequence = 0;
+  int tab = 0, pairingRevision = 0, _generation = 0, _sequence = 0;
   List<DesktopDevice> devices = [];
   DesktopDevice? device;
   List<SessionSummary> sessions = [];
@@ -33,6 +33,9 @@ class AppController extends ChangeNotifier {
   final List<Map<String, dynamic>> _rawMessages = [];
   final Map<String, Map<String, String>> _liveTexts = {};
   final Set<String> _liveEventIDs = {};
+  String? _confirmedTailID;
+  ApiClient? _loadingSessionsAPI;
+  int _sessionRequestID = 0;
   int _pairGeneration = 0;
   bool _disposed = false;
 
@@ -50,6 +53,14 @@ class AppController extends ChangeNotifier {
       sessions.where((s) => s.id == selectedID).firstOrNull;
   String get _draftKey => '${device?.id ?? 'preview'}.$selectedID';
   String get draft => _drafts[_draftKey] ?? '';
+  String? get unconfirmedText => _pendingPrompts[_draftKey]?['text'] as String?;
+  void restoreUnconfirmedDraft() {
+    final text = unconfirmedText;
+    if (text == null) return;
+    setDraft(text);
+    changed();
+  }
+
   List<SessionSummary> get visibleSessions => sessions
       .where(
         (s) =>
@@ -111,6 +122,7 @@ class AppController extends ChangeNotifier {
   }
 
   void enterPreview() {
+    cancelPairing();
     ++_generation;
     _subscription?.cancel();
     _liveSubscription?.cancel();
@@ -178,12 +190,17 @@ class AppController extends ChangeNotifier {
     _sequence = 0;
     _seenSequence = 0;
     _historyLoaded = false;
+    _confirmedTailID = null;
     _rawMessages.clear();
     _liveTexts.clear();
     _liveEventIDs.clear();
     final generation = ++_generation;
-    await _subscription?.cancel();
-    await _liveSubscription?.cancel();
+    final previousSubscription = _subscription,
+        previousLive = _liveSubscription;
+    await previousSubscription?.cancel();
+    if (generation != _generation) return;
+    await previousLive?.cancel();
+    if (generation != _generation) return;
     _refreshTimer?.cancel();
     _reconnectTimer?.cancel();
     if (previewMode) {
@@ -231,6 +248,7 @@ class AppController extends ChangeNotifier {
           _rawMessages.addAll(
             (cached['data'] as List).map((e) => Map<String, dynamic>.from(e)),
           );
+          _confirmedTailID = _rawMessages.lastOrNull?['id'] as String?;
           _renderMessages();
         }
       }
@@ -277,7 +295,29 @@ class AppController extends ChangeNotifier {
       _rawMessages.insertAll(0, list.where((m) => !byID.containsKey(m['id'])));
       messageCursor = (page['cursor'] as Map?)?['next'] as String?;
     } else {
+      // A newest-page refresh must remain contiguous. If more than a page was
+      // produced while away, rebuild the window and take its new older cursor.
+      if (_confirmedTailID != null &&
+          !list.any((item) => item['id'] == _confirmedTailID)) {
+        _rawMessages.clear();
+        _historyLoaded = false;
+        _liveTexts.removeWhere(
+          (id, _) => !list.any((item) => item['id'] == id),
+        );
+      }
       for (final item in list) {
+        final overlays = _liveTexts[item['id']];
+        for (final part in (item['content'] as List? ?? []).whereType<Map>()) {
+          if (part['type'] != 'text') continue;
+          final id = part['id'], text = part['text'] as String? ?? '';
+          final live = overlays?[id];
+          if (live != null &&
+              (text.startsWith(live) ||
+                  (text.isNotEmpty && !live.startsWith(text)))) {
+            overlays!.remove(id);
+          }
+        }
+        if (overlays?.isEmpty == true) _liveTexts.remove(item['id']);
         final index = _rawMessages.indexWhere((m) => m['id'] == item['id']);
         if (index < 0) {
           _rawMessages.add(item);
@@ -289,6 +329,7 @@ class AppController extends ChangeNotifier {
         messageCursor = (page['cursor'] as Map?)?['next'] as String?;
         _historyLoaded = true;
       }
+      _confirmedTailID = list.lastOrNull?['id'] as String?;
       final desktopID = device?.id;
       if (desktopID != null) {
         await store.saveCache(desktopID, session, {
@@ -348,8 +389,18 @@ class AppController extends ChangeNotifier {
         }
         if (type.endsWith('.started')) parts.putIfAbsent(textID, () => '');
         if (type.endsWith('.delta')) {
+          final raw = _rawMessages
+              .where((m) => m['id'] == messageID)
+              .firstOrNull;
+          final existing =
+              (raw?['content'] as List? ?? [])
+                      .whereType<Map>()
+                      .where((p) => p['id'] == textID)
+                      .firstOrNull?['text']
+                  as String? ??
+              '';
           parts[textID] =
-              (parts[textID] ?? '') + (data['delta'] as String? ?? '');
+              (parts[textID] ?? existing) + (data['delta'] as String? ?? '');
         }
         if (type.endsWith('.ended')) {
           parts[textID] = data['text'] as String? ?? '';
@@ -553,6 +604,10 @@ class AppController extends ChangeNotifier {
 
   void _lostStream(int generation, Object e) {
     if (generation != _generation || _disposed) return;
+    _subscription?.cancel();
+    _liveSubscription?.cancel();
+    _liveTexts.clear();
+    _renderMessages();
     online = false;
     error = 'Reconnecting to your computer. Your draft is saved.';
     changed();
@@ -703,8 +758,12 @@ class AppController extends ChangeNotifier {
 
   Future<void> connectDevice(DesktopDevice next) async {
     final generation = ++_generation;
-    await _subscription?.cancel();
-    await _liveSubscription?.cancel();
+    final previousSubscription = _subscription,
+        previousLive = _liveSubscription;
+    await previousSubscription?.cancel();
+    if (generation != _generation) return;
+    await previousLive?.cancel();
+    if (generation != _generation) return;
     _activityTimer?.cancel();
     _refreshTimer?.cancel();
     _reconnectTimer?.cancel();
@@ -746,7 +805,13 @@ class AppController extends ChangeNotifier {
 
   Future<void> refreshSessions({bool more = false}) async {
     final api = _api, desktopID = device?.id, query = search;
-    if (previewMode || api == null || loadingSessions) return;
+    if (previewMode ||
+        api == null ||
+        (loadingSessions && identical(_loadingSessionsAPI, api))) {
+      return;
+    }
+    final requestID = ++_sessionRequestID;
+    _loadingSessionsAPI = api;
     loadingSessions = true;
     changed();
     try {
@@ -772,9 +837,15 @@ class AppController extends ChangeNotifier {
     } catch (e) {
       if (device?.id == desktopID) _failed(e);
     } finally {
-      loadingSessions = false;
-      changed();
-      if (search != query && device?.id == desktopID) {
+      if (requestID == _sessionRequestID) {
+        loadingSessions = false;
+        _loadingSessionsAPI = null;
+        changed();
+      }
+      if (requestID == _sessionRequestID &&
+          search != query &&
+          identical(api, _api) &&
+          device?.id == desktopID) {
         unawaited(refreshSessions());
       }
     }
@@ -943,6 +1014,8 @@ class AppController extends ChangeNotifier {
             _pairingApi?.close();
             _pairingApi = null;
             await connectDevice(paired);
+            pairingRevision++;
+            changed();
             return;
           }
           if (result['state'] == 'declined') {
@@ -1006,9 +1079,13 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> suspend() async {
-    ++_generation;
-    await _subscription?.cancel();
-    await _liveSubscription?.cancel();
+    final generation = ++_generation;
+    final previousSubscription = _subscription,
+        previousLive = _liveSubscription;
+    await previousSubscription?.cancel();
+    if (generation != _generation) return;
+    await previousLive?.cancel();
+    if (generation != _generation) return;
     _reconnectTimer?.cancel();
     _refreshTimer?.cancel();
     _activityTimer?.cancel();
@@ -1038,7 +1115,12 @@ class AppController extends ChangeNotifier {
         : e is FormatException
         ? e.message
         : 'Could not reach your computer. Your draft is saved.';
-    online = false;
+    if (e is! ApiException ||
+        e.status == 0 ||
+        e.status == 401 ||
+        e.status >= 500) {
+      online = false;
+    }
     changed();
   }
 

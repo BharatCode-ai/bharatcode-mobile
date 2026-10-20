@@ -449,7 +449,7 @@ class SessionsScreen extends StatelessWidget {
       ),
       const SizedBox(height: 8),
       const Text(
-        'Your code and model credentials stay on your computer.',
+        'Projects run on your computer. Model credentials stay there.',
         style: TextStyle(fontSize: 12, color: BC.faint),
       ),
     ],

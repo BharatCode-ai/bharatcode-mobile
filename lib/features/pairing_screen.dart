@@ -4,11 +4,53 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../controller.dart';
 import '../design/theme.dart';
 
-class PairingScreen extends StatelessWidget {
+class PairingScreen extends StatefulWidget {
   final AppController controller;
   const PairingScreen({super.key, required this.controller});
   @override
+  State<PairingScreen> createState() => _PairingState();
+}
+
+class _PairingState extends State<PairingScreen> {
+  AppController get controller => widget.controller;
+  late final int initialRevision = controller.pairingRevision;
+  @override
+  void initState() {
+    super.initState();
+    controller.addListener(_paired);
+  }
+
+  void _paired() {
+    if (controller.pairingRevision == initialRevision ||
+        !mounted ||
+        !Navigator.canPop(context)) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+        Navigator.pop(context);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_paired);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => Scaffold(
+    appBar: Navigator.canPop(context)
+        ? AppBar(
+            leading: BackButton(
+              onPressed: () {
+                controller.cancelPairing();
+                Navigator.pop(context);
+              },
+            ),
+          )
+        : null,
     body: SafeArea(
       child: LayoutBuilder(
         builder: (context, constraints) => SingleChildScrollView(
@@ -167,13 +209,14 @@ class PairingScreen extends StatelessWidget {
                   const SizedBox(height: 26),
                   const Divider(),
                   const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: controller.enterPreview,
-                    child: const Text(
-                      'Explore a sample workspace',
-                      style: TextStyle(color: BC.muted, fontSize: 13),
+                  if (!Navigator.canPop(context))
+                    TextButton(
+                      onPressed: controller.enterPreview,
+                      child: const Text(
+                        'Explore a sample workspace',
+                        style: TextStyle(color: BC.muted, fontSize: 13),
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 14),
                   const Text(
                     'Your computer runs the work.\nOpenTunnel keeps the connection encrypted.',

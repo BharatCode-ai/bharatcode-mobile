@@ -189,8 +189,14 @@ class _ConversationState extends State<ConversationScreen> {
                         ),
                       ),
                       TextButton(
-                        onPressed: c.resume,
-                        child: const Text('Retry'),
+                        onPressed: c.unconfirmedText != null
+                            ? c.restoreUnconfirmedDraft
+                            : c.resume,
+                        child: Text(
+                          c.unconfirmedText != null
+                              ? 'Restore message'
+                              : 'Retry',
+                        ),
                       ),
                     ],
                   ),
