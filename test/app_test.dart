@@ -70,6 +70,38 @@ void main() {
       expect(find.text('Also check billing'), findsOneWidget);
     },
   );
+  testWidgets('typing and Send submit the visible composer draft', (
+    tester,
+  ) async {
+    await phoneSize(tester);
+    final controller = AppController.preview();
+    await controller.selectSession(controller.sessions.first);
+    await tester.pumpWidget(BharatCodeApp(controller: controller));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('composer')),
+      'A visible draft',
+    );
+    await tester.pumpAndSettle();
+    expect(controller.draft, 'A visible draft');
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pumpAndSettle();
+    expect(
+      controller.messages.any(
+        (m) => m.role == 'user' && m.text == 'A visible draft',
+      ),
+      true,
+    );
+    expect(controller.draft, isEmpty);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('composer')))
+          .controller!
+          .text,
+      isEmpty,
+    );
+    controller.dispose();
+  });
   testWidgets('incoming replies follow the bottom without moving a reader', (
     tester,
   ) async {
