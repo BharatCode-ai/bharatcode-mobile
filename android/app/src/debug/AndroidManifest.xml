@@ -4,4 +4,11 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <application>
+        <!-- Match the renderer qualified on the development emulator even
+             when launched from its icon rather than the Flutter CLI. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false"/>
+    </application>
 </manifest>

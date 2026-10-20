@@ -59,6 +59,6 @@ The other native test targets cover:
 - `paired_device_test.dart`: remove the computer through the UI and verify that its old credential receives HTTP 401. This revokes the test phone's pairing; pair again afterward.
 - `pairing_test.dart`: enter a short-lived pairing payload from an app-private file, wait for matching Desktop approval, and verify secure persistence. See the test's setup comment; never put pairing payloads in command-line defines.
 
-For emulator graphics diagnosis, the native commands accept `--no-enable-impeller`. The shared `test_driver/integration_test.dart` also supports `flutter drive` with rendering overrides. Record the rendering configuration alongside native test results.
+Android debug builds disable Impeller to match the renderer qualified on the development emulator, including launches from the app icon. Release builds retain Flutter's default renderer and need their own device qualification. The native commands also accept `--no-enable-impeller`; the shared `test_driver/integration_test.dart` supports `flutter drive` with rendering overrides. Record the rendering configuration alongside native test results.
 
 The BharatCode mark comes from the Desktop project. Inter and JetBrains Mono are bundled with their font license notices in `assets/fonts`.
