@@ -166,7 +166,7 @@ void main() {
     );
     expect(
       tester
-          .widgetList<Text>(find.byType(Text))
+          .widgetList<SelectableText>(find.byType(SelectableText))
           .any((t) => t.data?.contains('BC_NATIVE_DIFF_OK') == true),
       true,
     );
