@@ -1,0 +1,14 @@
+.DS_Store
+.superpowers/
+.dart_tool/
+.flutter-plugins-dependencies
+build/
+coverage/
+android/local.properties
+ios/Pods/
+ios/.symlinks/
+*.jks
+*.keystore
+.env
+.env.*
+!.env.example
