@@ -146,7 +146,18 @@ void main() {
     await tester.pumpAndSettle();
 
     final changes = find.text('View working changes');
-    await tester.ensureVisible(changes);
+    expect(find.byKey(const Key('composer')), findsOneWidget);
+    await tester.scrollUntilVisible(
+      changes,
+      500,
+      scrollable: find
+          .descendant(
+            of: find.byType(ListView).first,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      maxScrolls: 40,
+    );
     await tester.tap(changes);
     await waitFor(
       tester,
