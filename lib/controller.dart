@@ -610,6 +610,12 @@ class AppController extends ChangeNotifier {
 
   void _lostStream(int generation, Object e) {
     if (generation != _generation || _disposed) return;
+    assert(() {
+      debugPrint(
+        'BCMobile stream lost ${e is ApiException ? e.status : e.runtimeType}',
+      );
+      return true;
+    }());
     _cancelStreams();
     _liveTexts.clear();
     _renderMessages();

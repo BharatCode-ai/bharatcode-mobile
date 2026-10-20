@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 
 import '../models/models.dart';
 import 'event_stream.dart';
@@ -84,7 +85,43 @@ class ApiClient {
       request.headers['content-type'] = 'application/json';
       request.body = jsonEncode(body);
     }
-    return _client.send(request);
+    final category = path.endsWith('/live')
+        ? 'live'
+        : path.endsWith('/event')
+        ? 'replay'
+        : path.endsWith('/message')
+        ? 'history'
+        : path.endsWith('/prompt')
+        ? 'prompt'
+        : path.endsWith('/health')
+        ? 'health'
+        : 'metadata';
+    assert(() {
+      debugPrint('BCMobile HTTP $method $category start');
+      return true;
+    }());
+    return _client
+        .send(request)
+        .then(
+          (response) {
+            assert(() {
+              debugPrint(
+                'BCMobile HTTP $method $category status ${response.statusCode}',
+              );
+              return true;
+            }());
+            return response;
+          },
+          onError: (Object error, StackTrace stack) {
+            assert(() {
+              debugPrint(
+                'BCMobile HTTP $method $category failed ${error.runtimeType}',
+              );
+              return true;
+            }());
+            Error.throwWithStackTrace(error, stack);
+          },
+        );
   }
 
   Future<Map<String, dynamic>> sessionPage({String? cursor, String? search}) =>
