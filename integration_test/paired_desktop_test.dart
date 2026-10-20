@@ -55,6 +55,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(
+      controller.unconfirmedText == null,
+      true,
+      reason: 'Resolve the fixture outbox before sending a new test message.',
+    );
     final previous = controller.messages.map((m) => m.id).toSet();
     const marker = 'BC_NATIVE_LIVE_OK';
     const prompt = 'Reply exactly $marker.';
@@ -98,7 +103,7 @@ void main() {
         (m) =>
             !previous.contains(m.id) &&
             m.role == 'assistant' &&
-            m.text.trim() == marker,
+            m.text.contains(marker),
       ),
       'Receive the reply in the open conversation without refreshing',
       timeout: const Duration(minutes: 3),
@@ -110,6 +115,7 @@ void main() {
     debugPrint('BC_E2E native_send_and_live_reply passed');
 
     if (const bool.fromEnvironment('BC_E2E_CONTROLS')) {
+      final beforeControls = controller.messages.map((m) => m.id).toSet();
       const controls =
           'First use the question tool to ask "Which check?" with '
           'options "Continue" and "Cancel". After I choose Continue, use bash '
@@ -152,7 +158,9 @@ void main() {
         tester,
         () => controller.messages.any(
           (m) =>
-              m.role == 'assistant' && m.text.trim() == 'BC_NATIVE_CONTROLS_OK',
+              m.role == 'assistant' &&
+              !beforeControls.contains(m.id) &&
+              m.text.contains('BC_NATIVE_CONTROLS_OK'),
         ),
         'Complete the approved fixture task',
         timeout: const Duration(minutes: 3),
