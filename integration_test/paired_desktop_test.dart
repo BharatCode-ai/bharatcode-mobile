@@ -38,6 +38,27 @@ void main() {
       'Open the paired conversation',
     );
 
+    if (const bool.fromEnvironment('BC_E2E_RECOVER_PENDING') &&
+        controller.unconfirmedText != null) {
+      expect(
+        controller.unconfirmedText == 'Reply exactly BC_NATIVE_LIVE_OK.',
+        true,
+        reason: 'Only recover the known qualification prompt.',
+      );
+      await tester.tap(find.text('Restore message'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Send message'));
+      await waitFor(
+        tester,
+        () =>
+            !controller.sending &&
+            controller.unconfirmedText == null &&
+            controller.draft.isEmpty,
+        'Recover the existing message without executing it again',
+      );
+      debugPrint('BC_E2E pending_admission_recovered passed');
+    }
+
     // Select through the actual picker, then verify its API selection completes.
     final choices = await controller.configuration('model');
     final qwen = choices.where((m) => '${m['name']}'.contains('Qwen')).single;
