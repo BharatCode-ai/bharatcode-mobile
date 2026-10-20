@@ -302,6 +302,27 @@ void main() {
     controller.dispose();
     await api.stream.close();
   });
+  test('chat navigation does not wait for an old stream to close', () async {
+    final api = DelayedCancelApi();
+    final controller = AppController(apiFactory: (_, _) => api);
+    await controller.connectDevice(computer);
+    await controller.selectSession(conversation);
+    api.cancellation = Completer<void>();
+    var opened = false;
+    final opening = controller.selectSession(conversation).then((_) {
+      opened = true;
+    });
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(opened, true);
+    } finally {
+      api.cancellation!.complete();
+      await opening;
+      controller.dispose();
+      await api.durable.close();
+      await api.stream.close();
+    }
+  });
   test(
     'preview supersedes a connection awaiting subscription cancellation',
     () async {
@@ -446,9 +467,10 @@ class DelayedCancelApi extends FakeApi {
   late final durable = StreamController<Map<String, dynamic>>(
     onCancel: () => cancellation?.future,
   );
+  int listens = 0;
   @override
   Stream<Map<String, dynamic>> events(String session, {int after = 0}) =>
-      durable.stream;
+      listens++ == 0 ? durable.stream : stream.stream;
 }
 
 class DelayedPageApi extends FakeApi {

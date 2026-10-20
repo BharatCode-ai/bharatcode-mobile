@@ -124,8 +124,7 @@ class AppController extends ChangeNotifier {
   void enterPreview() {
     cancelPairing();
     ++_generation;
-    _subscription?.cancel();
-    _liveSubscription?.cancel();
+    _cancelStreams();
     _activityTimer?.cancel();
     _api?.close();
     _api = null;
@@ -195,12 +194,7 @@ class AppController extends ChangeNotifier {
     _liveTexts.clear();
     _liveEventIDs.clear();
     final generation = ++_generation;
-    final previousSubscription = _subscription,
-        previousLive = _liveSubscription;
-    await previousSubscription?.cancel();
-    if (generation != _generation) return;
-    await previousLive?.cancel();
-    if (generation != _generation) return;
+    _cancelStreams();
     _refreshTimer?.cancel();
     _reconnectTimer?.cancel();
     if (previewMode) {
@@ -270,8 +264,7 @@ class AppController extends ChangeNotifier {
   void backToChats() {
     selectedID = null;
     ++_generation;
-    _subscription?.cancel();
-    _liveSubscription?.cancel();
+    _cancelStreams();
     _refreshTimer?.cancel();
     _reconnectTimer?.cancel();
     changed();
@@ -538,11 +531,23 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  void _cancelStreams() {
+    final durable = _subscription, live = _liveSubscription;
+    _subscription = null;
+    _liveSubscription = null;
+    // A transport may still be waiting for response headers. Navigation must
+    // proceed immediately; generation guards reject events from the old view.
+    for (final subscription in [durable, live]) {
+      if (subscription != null) {
+        unawaited(subscription.cancel().catchError((Object _) {}));
+      }
+    }
+  }
+
   void _subscribe(int generation) {
     final api = _api, session = selectedID;
     if (api == null || session == null || generation != _generation) return;
-    _subscription?.cancel();
-    _liveSubscription?.cancel();
+    _cancelStreams();
     _subscription = api
         .events(session, after: _sequence)
         .listen(
@@ -604,8 +609,7 @@ class AppController extends ChangeNotifier {
 
   void _lostStream(int generation, Object e) {
     if (generation != _generation || _disposed) return;
-    _subscription?.cancel();
-    _liveSubscription?.cancel();
+    _cancelStreams();
     _liveTexts.clear();
     _renderMessages();
     online = false;
@@ -774,12 +778,7 @@ class AppController extends ChangeNotifier {
   Future<void> connectDevice(DesktopDevice next) async {
     final generation = ++_generation;
     _activityTimer?.cancel();
-    final previousSubscription = _subscription,
-        previousLive = _liveSubscription;
-    await previousSubscription?.cancel();
-    if (generation != _generation) return;
-    await previousLive?.cancel();
-    if (generation != _generation) return;
+    _cancelStreams();
     _activityTimer?.cancel();
     _refreshTimer?.cancel();
     _reconnectTimer?.cancel();
@@ -1099,13 +1098,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> suspend() async {
-    final generation = ++_generation;
-    final previousSubscription = _subscription,
-        previousLive = _liveSubscription;
-    await previousSubscription?.cancel();
-    if (generation != _generation) return;
-    await previousLive?.cancel();
-    if (generation != _generation) return;
+    ++_generation;
+    _cancelStreams();
     _reconnectTimer?.cancel();
     _refreshTimer?.cancel();
     _activityTimer?.cancel();
@@ -1147,8 +1141,7 @@ class AppController extends ChangeNotifier {
     _disposed = true;
     ++_generation;
     cancelPairing();
-    _subscription?.cancel();
-    _liveSubscription?.cancel();
+    _cancelStreams();
     _refreshTimer?.cancel();
     _activityTimer?.cancel();
     _searchTimer?.cancel();
