@@ -19,6 +19,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(c.online && c.device != null, true);
     const title = 'BC Mobile qualification baseline';
+    final fixtureTitle = find.byWidgetPredicate(
+      (widget) => widget is Text && widget.data == title,
+    );
     final fixture = c.sessions.where((s) => s.title == title).single;
     expect(fixture.directory.endsWith('/mobile-qualification-project'), true);
 
@@ -26,13 +29,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await waitFor(tester, () => !c.loadingSessions, 'Search Desktop chats');
     expect(c.visibleSessions.every((s) => s.title.contains(title)), true);
-    expect(find.text(title), findsOneWidget);
+    expect(fixtureTitle, findsOneWidget);
     await tester.tap(find.text('All projects'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ListTile, fixture.project));
     await tester.pumpAndSettle();
     expect(c.projectFilter == fixture.project, true);
-    await tester.tap(find.text(title));
+    await tester.tap(fixtureTitle);
     await waitFor(tester, () => !c.busy && c.selected != null, 'Open fixture');
     await tester.pumpAndSettle();
 
@@ -58,7 +61,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('composer')), draft);
     await tester.tap(find.byTooltip('Back to chats'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(title));
+    await tester.tap(fixtureTitle);
     await waitFor(
       tester,
       () => !c.busy && c.selected != null,
@@ -176,8 +179,8 @@ void main() {
     await tester.tap(find.byTooltip('Back to chats'));
     await tester.pumpAndSettle();
     debugPrint('BC_E2E native_new_chat passed');
-    await tester.ensureVisible(find.text(title));
-    await tester.tap(find.text(title));
+    await tester.ensureVisible(fixtureTitle);
+    await tester.tap(fixtureTitle);
     await waitFor(
       tester,
       () => c.selectedID == fixture.id && !c.busy,
