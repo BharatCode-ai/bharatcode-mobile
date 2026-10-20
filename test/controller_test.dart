@@ -66,6 +66,7 @@ class FakeApi extends ApiClient {
   Stream<Map<String, dynamic>> liveEvents(String session) => stream.stream;
   String? wireCursor;
   int messageReads = 0;
+  bool failMessageReads = false;
   List<Map<String, dynamic>> wireMessages = [];
   List<Map<String, dynamic>> pendingPermissions = [];
   final sent = <String>[];
@@ -99,6 +100,7 @@ class FakeApi extends ApiClient {
     String? cursor,
   }) async {
     messageReads++;
+    if (failMessageReads) throw StateError('History unavailable');
     return {
       'data': wireMessages,
       'cursor': {'next': wireCursor},
@@ -186,6 +188,25 @@ void main() {
       }
     },
   );
+  test('a history refresh failure does not undo confirmed delivery', () async {
+    final api = FakeApi('pc_one');
+    final controller = AppController(apiFactory: (_, _) => api);
+    await controller.connectDevice(computer);
+    await controller.selectSession(conversation);
+    controller.setDraft('Hello');
+    api.failMessageReads = true;
+    await controller.send();
+    expect(api.sent, hasLength(1));
+    expect(controller.draft, isEmpty);
+    expect(controller.error, contains('Message sent'));
+    expect(controller.error, isNot(contains('Delivery is unconfirmed')));
+    expect(
+      await controller.store.pending(computer.id, conversation.id),
+      isNull,
+    );
+    controller.dispose();
+    await api.stream.close();
+  });
   test(
     'storage failure after admission retries the same message identity',
     () async {

@@ -669,6 +669,7 @@ class AppController extends ChangeNotifier {
       changed();
       return;
     }
+    var admitted = false;
     try {
       if (api == null || deviceID == null) return;
       await store.savePending(deviceID, session, pending);
@@ -677,12 +678,18 @@ class AppController extends ChangeNotifier {
       // Admission and clearing the submitted draft are one persisted transition.
       // A failed write retains the original message ID for a safe retry.
       await store.admit(deviceID, session, pending['id'] as String, text);
+      admitted = true;
       _pendingPrompts.remove(key);
       if (_drafts[key]?.trim() == text) _drafts[key] = '';
       if (generation == _generation) await _loadMessages(generation);
     } catch (_) {
       if (generation == _generation) {
-        error = 'Delivery is unconfirmed. Retry this message to check admission; it will use the same message ID.';
+        if (admitted) {
+          _lostStream(generation, const ApiException(0, 'History unavailable'));
+          error = 'Message sent. Conversation updates are temporarily unavailable; reconnecting.';
+        } else {
+          error = 'Delivery is unconfirmed. Retry this message to check admission; it will use the same message ID.';
+        }
       }
     } finally {
       sending = false;
