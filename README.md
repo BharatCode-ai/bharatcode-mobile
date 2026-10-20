@@ -15,7 +15,7 @@ The connector uses the normal Desktop-owned server and its compatibility API for
 
 Compatible server contracts are based on [BharatCode Desktop](https://github.com/BharatCode-ai/bharatcode-desktop), `dev` at `1e97842919d87a350b38ea5fcf55f952af072e2e`.
 
-OpenTunnel is a third-party service operated by the upstream project. Its source license permits reuse; its hosted-service usage commitments must be established before public distribution.
+Connections use the existing hosted OpenTunnel service. Pairing, conversation storage, and execution stay under the Desktop instance; this project does not introduce a BC-managed relay or a separate mobile account.
 
 ## Development
 

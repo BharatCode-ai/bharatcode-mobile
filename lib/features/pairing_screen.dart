@@ -236,33 +236,50 @@ class _PairingState extends State<PairingScreen> {
     ),
   );
   Future<void> _paste(BuildContext context) async {
-    final input = TextEditingController();
     final value = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Paste Desktop pairing code'),
-        content: TextField(
-          controller: input,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            hintText: 'Copy the pairing code from Desktop',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, input.text),
-            child: const Text('Pair'),
-          ),
-        ],
-      ),
+      builder: (_) => const _PairingCodeDialog(),
     );
-    input.dispose();
+    if (!mounted) return;
     if (value?.isNotEmpty ?? false) await controller.pair(value!);
   }
+}
+
+class _PairingCodeDialog extends StatefulWidget {
+  const _PairingCodeDialog();
+  @override
+  State<_PairingCodeDialog> createState() => _PairingCodeDialogState();
+}
+
+class _PairingCodeDialogState extends State<_PairingCodeDialog> {
+  final input = TextEditingController();
+  @override
+  void dispose() {
+    input.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Paste Desktop pairing code'),
+    content: TextField(
+      controller: input,
+      maxLines: 4,
+      decoration: const InputDecoration(
+        hintText: 'Copy the pairing code from Desktop',
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, input.text),
+        child: const Text('Pair'),
+      ),
+    ],
+  );
 }
 
 class ScannerScreen extends StatefulWidget {

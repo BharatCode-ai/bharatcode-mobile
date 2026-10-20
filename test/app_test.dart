@@ -26,6 +26,23 @@ void main() {
       expect(find.text('Fix checkout validation'), findsOneWidget);
     },
   );
+  testWidgets('paste dialog can close and show a recoverable pairing error', (
+    tester,
+  ) async {
+    await phoneSize(tester);
+    final controller = AppController();
+    await tester.pumpWidget(BharatCodeApp(controller: controller));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Paste a pairing code'));
+    await tester.tap(find.text('Paste a pairing code'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'invalid pairing data');
+    await tester.tap(find.widgetWithText(FilledButton, 'Pair'));
+    await tester.pumpAndSettle();
+    expect(find.text('Continue from your computer'), findsOneWidget);
+    expect(controller.error, isNotNull);
+    controller.dispose();
+  });
   testWidgets(
     'chat filtering and navigation work and a draft survives returning to chats',
     (tester) async {
