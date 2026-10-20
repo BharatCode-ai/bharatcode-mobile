@@ -1,0 +1,164 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createGateway } from '../src/gateway.mjs'
+
+async function setup(t, options = {}) {
+  const seen = []
+  const upstream = createServer((req, res) => {
+    seen.push({ url: req.url, method: req.method, headers: req.headers })
+    if (req.url === '/api/model') {
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ data: [{ id: 'model_one', providerID: 'provider_one', name: 'Configured model', enabled: true, request: { headers: { authorization: 'secret-provider-key' } }, api: { settings: { apiKey: 'secret-provider-key' } } }] }))
+      return
+    }
+    if (req.url.includes('/event')) {
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.write('data: {"type":"connected"}\n\n')
+      return
+    }
+    res.setHeader('content-type', 'application/json')
+    res.end(JSON.stringify({ data: [], cursor: {} }))
+  })
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  t.after(() => { upstream.closeAllConnections(); upstream.close() })
+  const directory = await mkdtemp(join(tmpdir(), 'bc-mobile-test-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  let currentTime = 1_000_000
+  const claims = []
+  const gateway = await createGateway({
+    upstream: `http://127.0.0.1:${upstream.address().port}`,
+    username: 'opencode', password: 'private-sidecar-secret',
+    storePath: join(directory, 'devices.json'),
+    now: () => currentTime, onPairingRequest: claim => claims.push(claim),
+    ...options,
+  })
+  const origin = await gateway.listen()
+  t.after(() => gateway.close())
+  const post = (path, body, token) => fetch(origin + path, {
+    method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  })
+  async function pair() {
+    const qr = gateway.issuePairing('https://api.unit.opentunnel.xyz')
+    const response = await post('/mobile/v1/claim', { code: qr.code, deviceName: 'Test phone' })
+    assert.equal(response.status, 201)
+    const claim = await response.json()
+    await gateway.approve(claim.claimID)
+    const result = await post('/mobile/v1/claim/status', claim)
+    return { ...(await result.json()), claim, qr }
+  }
+  return { gateway, origin, post, pair, seen, claims, directory, expire: () => { currentTime += 300_001 } }
+}
+
+test('scan needs explicit desktop approval, and one-use code cannot be claimed twice', async t => {
+  const c = await setup(t)
+  const qr = c.gateway.issuePairing('https://api.unit.opentunnel.xyz')
+  const responses = await Promise.all([1, 2].map(() => c.post('/mobile/v1/claim', { code: qr.code, deviceName: 'Phone' })))
+  assert.deepEqual(responses.map(r => r.status).sort(), [201, 401])
+  const claim = await responses.find(r => r.status === 201).json()
+  assert.equal((await (await c.post('/mobile/v1/claim/status', claim)).json()).state, 'waiting')
+  assert.equal(c.claims.length, 1)
+  assert.equal(c.gateway.devices().length, 0)
+  await c.gateway.approve(claim.claimID)
+  const result = await (await c.post('/mobile/v1/claim/status', claim)).json()
+  assert.equal(result.state, 'approved')
+  assert.ok(result.token.length >= 40)
+  assert.equal((await c.post('/mobile/v1/claim/status', claim)).status, 410)
+})
+
+test('expired pairing codes and pending approvals cannot issue a credential', async t => {
+  const c = await setup(t)
+  const qr = c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  c.expire()
+  assert.equal((await c.post('/mobile/v1/claim', { code: qr.code, deviceName: 'Phone' })).status, 401)
+  const next = c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  const claim = await (await c.post('/mobile/v1/claim', { code: next.code, deviceName: 'Phone' })).json()
+  c.expire()
+  await assert.rejects(c.gateway.approve(claim.claimID), /expired/)
+  assert.equal(c.gateway.devices().length, 0)
+})
+
+test('only HTTPS OpenTunnel origins can be issued and issuing a new QR invalidates the old one', async t => {
+  const c = await setup(t)
+  for (const url of ['http://unit.opentunnel.xyz', 'https://evil.example', 'https://unit.opentunnel.xyz/path', 'https://user:pass@unit.opentunnel.xyz']) {
+    assert.throws(() => c.gateway.issuePairing(url))
+  }
+  const old = c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  assert.equal((await c.post('/mobile/v1/claim', { code: old.code, deviceName: 'Phone' })).status, 401)
+})
+
+test('denied claim cannot be approved and a wrong claim secret cannot poll', async t => {
+  const c = await setup(t)
+  const qr = c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  const claim = await (await c.post('/mobile/v1/claim', { code: qr.code, deviceName: 'Phone' })).json()
+  assert.equal((await c.post('/mobile/v1/claim/status', { ...claim, claimSecret: 'wrong' })).status, 401)
+  c.gateway.decline(claim.claimID)
+  assert.equal((await (await c.post('/mobile/v1/claim/status', claim)).json()).state, 'declined')
+  await assert.rejects(c.gateway.approve(claim.claimID))
+})
+
+test('device credential proxies only allowed routes and never leaks master credentials', async t => {
+  const c = await setup(t)
+  assert.equal((await fetch(c.origin + '/api/session')).status, 401)
+  const { token } = await c.pair()
+  const response = await fetch(c.origin + '/api/session?limit=30', { headers: { authorization: `Bearer ${token}`, 'x-forwarded-host': 'evil.example' } })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { data: [], cursor: {} })
+  assert.equal(c.seen[0].headers.authorization, 'Basic ' + Buffer.from('opencode:private-sidecar-secret').toString('base64'))
+  assert.equal(c.seen[0].headers['x-forwarded-host'], undefined)
+  const metadata = await (await fetch(c.origin + '/mobile/v1/health', { headers: { authorization: `Bearer ${token}` } })).text()
+  assert.ok(!metadata.includes('private-sidecar-secret'))
+  for (const path of ['/api/credential', '/api/config', '/api/integration', '/api/session/abc/permission', '/api/fs/file?path=/etc/passwd', '/api/session/abc%2F..%2Fcredential']) {
+    const denied = await c.post(path, {}, token)
+    assert.equal(denied.status, 403, path)
+  }
+  assert.equal(c.seen.length, 1)
+})
+
+test('persisted registry contains verifiers, survives restart and supports individual revocation', async t => {
+  const c = await setup(t)
+  const first = await c.pair()
+  const second = await c.pair()
+  const content = await readFile(join(c.directory, 'devices.json'), 'utf8')
+  assert.ok(!content.includes(first.token))
+  assert.ok(!content.includes(second.token))
+  await c.gateway.revoke(first.device.id)
+  assert.equal((await fetch(c.origin + '/mobile/v1/health', { headers: { authorization: `Bearer ${first.token}` } })).status, 401)
+  assert.equal((await fetch(c.origin + '/mobile/v1/health', { headers: { authorization: `Bearer ${second.token}` } })).status, 200)
+  const reopened = await createGateway({ upstream: 'http://127.0.0.1:1', username: 'opencode', password: 'secret', storePath: join(c.directory, 'devices.json') })
+  t.after(() => reopened.close())
+  const url = await reopened.listen()
+  assert.equal((await fetch(url + '/mobile/v1/health', { headers: { authorization: `Bearer ${second.token}` } })).status, 200)
+})
+
+test('revocation closes an already authenticated live event stream', async t => {
+  const c = await setup(t)
+  const { token, device } = await c.pair()
+  const response = await fetch(c.origin + '/api/session/ses_abc/event?after=0', { headers: { authorization: `Bearer ${token}` } })
+  const reader = response.body.getReader()
+  assert.ok((await reader.read()).value.length > 0)
+  await c.gateway.revoke(device.id)
+  const ended = await Promise.race([reader.read().then(r => r.done, () => true), new Promise(resolve => setTimeout(() => resolve(false), 500))])
+  assert.equal(ended, true)
+})
+
+test('requests with hostile browser origins and oversized bodies are rejected before upstream access', async t => {
+  const c = await setup(t)
+  const { token } = await c.pair()
+  assert.equal((await fetch(c.origin + '/api/session', { headers: { authorization: `Bearer ${token}`, origin: 'https://evil.example' } })).status, 403)
+  assert.equal((await fetch(c.origin + '/api/session', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ text: 'x'.repeat(1_048_577) }) })).status, 413)
+  assert.equal(c.seen.length, 0)
+})
+
+test('model metadata is projected without provider configuration or secrets', async t => {
+  const c = await setup(t)
+  const { token } = await c.pair()
+  const response = await fetch(c.origin + '/api/model', { headers: { authorization: `Bearer ${token}` } })
+  assert.deepEqual(await response.json(), { data: [{ id: 'model_one', providerID: 'provider_one', name: 'Configured model', enabled: true }] })
+  assert.equal((await fetch(c.origin + '/api/event', { headers: { authorization: `Bearer ${token}` } })).status, 403)
+})

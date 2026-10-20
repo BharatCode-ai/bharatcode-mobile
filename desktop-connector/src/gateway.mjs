@@ -1,0 +1,173 @@
+import { createServer, request as httpRequest } from 'node:http'
+import { hostname, platform } from 'node:os'
+import { randomInt } from 'node:crypto'
+import { openDevices, secret, verifier, matches } from './devices.mjs'
+import { allowed, sidecarOrigin, tunnelOrigin } from './policy.mjs'
+
+const lifetime = 300_000
+const maxBody = 1_048_576
+
+export async function createGateway(options) {
+  const registry = await openDevices(options.storePath)
+  const upstream = sidecarOrigin(options.upstream)
+  if (!options.password) throw new Error('Sidecar password required')
+  const now = options.now ?? Date.now
+  const claims = new Map(), active = new Map()
+  let qr, closed = false
+  const metadata = () => ({ id: registry.desktopID, name: options.name ?? hostname(), platform: platform() })
+  function issuePairing(origin) {
+    if (closed) throw new Error('Gateway closed')
+    qr = { v: 1, desktopID: registry.desktopID, origin: tunnelOrigin(origin), code: secret(), expiresAt: now() + lifetime }
+    return { ...qr }
+  }
+  function claimFor(body) {
+    const claim = claims.get(body.claimID)
+    if (!claim || !matches(body.claimSecret, claim.verifier)) throw status(401, 'Invalid pairing claim')
+    if (claim.expiresAt <= now()) { claims.delete(body.claimID); throw status(410, 'Pairing expired') }
+    if (claim.state === 'consumed') throw status(410, 'Pairing already consumed')
+    return claim
+  }
+  async function approve(id) {
+    const claim = claims.get(id)
+    if (!claim || claim.state !== 'waiting' || claim.expiresAt <= now()) throw new Error('Pairing expired or already resolved')
+    // Reserve synchronously before the first await: approval cannot issue twice.
+    claim.state = 'approving'
+    const token = secret()
+    const device = { id: 'dev_' + secret().slice(0, 20), name: claim.name, pairedAt: now(), verifier: verifier(token) }
+    try { await registry.add(device) } catch (error) { claim.state = 'waiting'; throw error }
+    claim.state = 'approved'
+    claim.token = token
+    claim.device = { id: device.id, name: device.name, pairedAt: device.pairedAt }
+  }
+  function decline(id) {
+    const claim = claims.get(id)
+    if (claim?.state === 'waiting') claim.state = 'declined'
+  }
+  async function revoke(id) {
+    await registry.remove(id)
+    for (const abort of active.get(id) ?? []) abort()
+    active.delete(id)
+  }
+  async function handle(req, res) {
+    try {
+      if (req.headers.origin) throw status(403, 'Browser-origin requests are not allowed')
+      if (req.method === 'POST' && req.url === '/mobile/v1/claim') {
+        const body = await jsonBody(req)
+        if (!qr || qr.expiresAt <= now() || !matches(body.code, verifier(qr.code))) throw status(401, 'Pairing code expired or used')
+        if (typeof body.deviceName !== 'string' || !body.deviceName.trim() || body.deviceName.length > 80 || /[\x00-\x1f\x7f]/.test(body.deviceName)) throw status(400, 'Invalid device name')
+        for (const [id, claim] of claims) if (claim.expiresAt <= now()) claims.delete(id)
+        if (claims.size >= 100) throw status(429, 'Too many pairing attempts')
+        qr = undefined
+        const claimID = secret(), claimSecret = secret(), confirmation = String(randomInt(1_000_000)).padStart(6, '0')
+        const claim = { claimID, verifier: verifier(claimSecret), name: body.deviceName.trim(), confirmation, expiresAt: now() + lifetime, state: 'waiting' }
+        claims.set(claimID, claim)
+        options.onPairingRequest?.({ claimID, name: claim.name, confirmation, expiresAt: claim.expiresAt })
+        return reply(res, 201, { claimID, claimSecret, confirmation, expiresAt: claim.expiresAt })
+      }
+      if (req.method === 'POST' && req.url === '/mobile/v1/claim/status') {
+        const body = await jsonBody(req), claim = claimFor(body)
+        if (claim.state === 'approved') {
+          const result = { state: 'approved', token: claim.token, device: claim.device, desktop: metadata() }
+          claim.state = 'consumed'
+          delete claim.token
+          return reply(res, 200, result)
+        }
+        return reply(res, 200, { state: claim.state })
+      }
+      const bearer = /^Bearer ([A-Za-z0-9_-]{40,})$/.exec(req.headers.authorization ?? '')?.[1]
+      const device = bearer && registry.authenticate(bearer)
+      if (!device) throw status(401, 'Device authorization required')
+      if (req.method === 'GET' && req.url === '/mobile/v1/health') return reply(res, 200, {
+        protocol: 1, desktop: metadata(), capabilities: { sessions: true, prompts: true, replay: true, permissions: true, questions: true, models: true, files: false, terminal: false },
+      })
+      if (req.method === 'DELETE' && req.url === '/mobile/v1/device') {
+        await revoke(device.id)
+        return reply(res, 200, { revoked: true })
+      }
+      if (!allowed(req.method, req.url)) throw status(403, 'Route is not available to mobile devices')
+      const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await rawBody(req) : undefined
+      if (body && !/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw status(415, 'JSON required')
+      forward(req, res, device.id, body)
+    } catch (error) {
+      if (!res.headersSent) reply(res, error.status ?? 500, { error: error.status ? error.message : 'Connection request failed' })
+      else res.destroy()
+    }
+  }
+  function forward(req, res, deviceID, body) {
+    const target = new URL(req.url, upstream)
+    const headers = { authorization: 'Basic ' + Buffer.from(`${options.username ?? 'opencode'}:${options.password}`).toString('base64'), accept: req.headers.accept ?? 'application/json' }
+    if (body) { headers['content-type'] = 'application/json'; headers['content-length'] = body.length }
+    const remote = httpRequest(target, { method: req.method, headers }, incoming => {
+      if (incoming.statusCode >= 300 && incoming.statusCode < 400) { incoming.destroy(); reply(res, 502, { error: 'Unexpected sidecar redirect' }); return }
+      const contentType = incoming.headers['content-type'] ?? 'application/json'
+      if (target.pathname === '/api/model' || target.pathname === '/api/agent') {
+        const chunks = []; let length = 0
+        incoming.on('data', chunk => { length += chunk.length; if (length > maxBody) { incoming.destroy(); reply(res, 502, { error: 'Metadata exceeds supported size' }); return } chunks.push(chunk) })
+        incoming.on('end', () => {
+          try {
+            const result = JSON.parse(Buffer.concat(chunks).toString())
+            if (!Array.isArray(result.data)) throw new Error('Invalid metadata')
+            const fields = target.pathname === '/api/model' ? ['id', 'providerID', 'name', 'enabled'] : ['id', 'name', 'description', 'mode']
+            const data = result.data.map(item => Object.fromEntries(fields.filter(key => Object.hasOwn(item, key)).map(key => [key, item[key]])))
+            reply(res, incoming.statusCode ?? 502, { data })
+          } catch { reply(res, 502, { error: 'Invalid Desktop metadata' }) }
+        })
+        incoming.on('error', () => { if (!res.headersSent) reply(res, 502, { error: 'Desktop metadata unavailable' }) })
+        return
+      }
+      res.writeHead(incoming.statusCode ?? 502, { 'content-type': contentType, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
+      let size = 0
+      incoming.on('data', chunk => {
+        if (!contentType.includes('text/event-stream') && (size += chunk.length) > 16_777_216) { incoming.destroy(); res.destroy() }
+      })
+      incoming.on('error', () => res.destroy())
+      incoming.pipe(res)
+    })
+    const abort = () => { remote.destroy(); res.destroy() }
+    if (!active.has(deviceID)) active.set(deviceID, new Set())
+    active.get(deviceID).add(abort)
+    remote.on('error', () => { if (!res.headersSent && !res.destroyed) reply(res, 502, { error: 'Computer server unavailable' }); else res.destroy() })
+    remote.setTimeout(30_000, () => remote.destroy())
+    res.once('close', () => { remote.destroy(); active.get(deviceID)?.delete(abort); if (!active.get(deviceID)?.size) active.delete(deviceID) })
+    remote.end(body)
+  }
+  const server = createServer((req, res) => void handle(req, res))
+  server.requestTimeout = 15_000
+  return {
+    issuePairing, approve, decline, revoke,
+    devices: registry.list,
+    async listen() {
+      if (closed) throw new Error('Gateway closed')
+      if (!server.listening) await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
+      return `http://127.0.0.1:${server.address().port}`
+    },
+    async close() {
+      closed = true; qr = undefined; claims.clear()
+      for (const connections of active.values()) for (const abort of connections) abort()
+      active.clear()
+      if (!server.listening) return
+      server.closeAllConnections()
+      await new Promise(resolve => server.close(resolve))
+    },
+  }
+}
+
+function status(code, message) { return Object.assign(new Error(message), { status: code }) }
+function reply(res, code, data) {
+  res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
+  res.end(JSON.stringify(data))
+}
+async function rawBody(req) {
+  if (Number(req.headers['content-length']) > maxBody) throw status(413, 'Request is too large')
+  const chunks = []; let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > maxBody) throw status(413, 'Request is too large')
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
+async function jsonBody(req) {
+  if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw status(415, 'JSON required')
+  try { const body = JSON.parse((await rawBody(req)).toString()); if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error(); return body } catch (error) { if (error.status) throw error; throw status(400, 'Invalid JSON') }
+}
