@@ -120,15 +120,23 @@ export async function createDesktopAPI({ request, storePath }) {
       const operation=(async()=>{
         const selection=state.selections[id], model=selection?.model ?? info.model
         state.admissions[key]={hash,state:'forwarding',selection}; await save()
-        await request(located(`/session/${id}/prompt_async`,info.directory),'POST',{
-          messageID:body.id, agent:selection?.agent ?? info.agent,
-          ...(model ? {model:{providerID:model.providerID,modelID:model.id},variant:model.variant} : {}),
-          parts:[{type:'text',text:body.prompt.text}],
-        },signal)
         let confirmed = false
-        for (let attempt = 0; attempt < 30; attempt++) {
-          if (await stored(id, body, info.directory, signal)) { confirmed = true; break }
-          await delay(100, undefined, { signal })
+        try {
+          await request(located(`/session/${id}/prompt_async`,info.directory),'POST',{
+            messageID:body.id, agent:selection?.agent ?? info.agent,
+            ...(model ? {model:{providerID:model.providerID,modelID:model.id},variant:model.variant} : {}),
+            parts:[{type:'text',text:body.prompt.text}],
+          },signal)
+          for (let attempt = 0; attempt < 30; attempt++) {
+            if (await stored(id, body, info.directory, signal)) { confirmed = true; break }
+            await delay(100, undefined, { signal })
+          }
+        } catch (error) {
+          // The engine can store and execute the message before its HTTP
+          // acknowledgement or admission probe fails. Confirm it without ever
+          // forwarding the prompt again; otherwise preserve the original error.
+          confirmed = await stored(id, body, info.directory, signal).catch(() => false)
+          if (!confirmed) throw error
         }
         if (!confirmed) throw fail(409, 'Desktop delivery is unconfirmed. Keep this draft and check your computer.')
         state.admissions[key]={hash,state:'admitted'};

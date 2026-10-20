@@ -42,6 +42,36 @@ test('an uncertain Desktop admission is never automatically executed a second ti
   await assert.rejects(api.handle('POST','/api/session/ses_one/prompt',prompt),/unconfirmed/)
   assert.equal(submissions,1)
 })
+test('stored Desktop admission wins when the async acknowledgement fails', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'bc-desktop-api-')); t.after(() => rm(root, {recursive:true,force:true}))
+  let submissions=0, stored=false
+  const request = async path => {
+    if(path === '/session/ses_one') return {data:{directory:'/project'}}
+    if(path.includes('prompt_async')) { submissions++; stored=true; throw Object.assign(new Error('acknowledgement failed'),{status:500}) }
+    if(stored && path.includes('/message/msg_one?')) return {data:{info:{id:'msg_one',role:'user'},parts:[{type:'text',text:'Run tests'}]}}
+    throw Object.assign(new Error('not found'),{status:404})
+  }
+  const storePath=join(root,'admissions.json')
+  const api=await createDesktopAPI({request,storePath})
+  const prompt={id:'msg_one',prompt:{text:'Run tests'}}
+  assert.equal((await api.handle('POST','/api/session/ses_one/prompt',prompt)).data.data.id,'msg_one')
+  const reopened=await createDesktopAPI({request,storePath})
+  assert.equal((await reopened.handle('POST','/api/session/ses_one/prompt',prompt)).data.data.id,'msg_one')
+  assert.equal(submissions,1)
+})
+test('an admission probe failure is reconciled without resending the prompt', async t => {
+  const root=await mkdtemp(join(tmpdir(),'bc-desktop-api-'));t.after(()=>rm(root,{recursive:true,force:true}))
+  let submissions=0, reads=0
+  const request=async path=>{
+    if(path==='/session/ses_one')return {data:{directory:'/project'}}
+    if(path.includes('/prompt_async')){submissions++;return {data:undefined}}
+    if(++reads===1)throw Object.assign(new Error('temporary read failure'),{status:500})
+    return {data:{info:{id:'msg_one',role:'user'},parts:[{type:'text',text:'Run tests'}]}}
+  }
+  const api=await createDesktopAPI({request,storePath:join(root,'admissions.json')})
+  const result=await api.handle('POST','/api/session/ses_one/prompt',{id:'msg_one',prompt:{text:'Run tests'}})
+  assert.equal(result.data.data.id,'msg_one');assert.equal(submissions,1)
+})
 test('Desktop provider and agent choices exclude secrets and hidden agents', async t => {
   const root=await mkdtemp(join(tmpdir(),'bc-desktop-api-'));t.after(()=>rm(root,{recursive:true,force:true}))
   const request=async path=>({data:path.startsWith('/provider')?{connected:['provider_one'],all:[{id:'provider_one',key:'private',models:{model_one:{id:'model_one',name:'Model',api:{key:'private'}}}},{id:'unconfigured',models:{unused:{id:'unused'}}}]}:[{name:'build',permission:{secret:'private'}},{name:'internal',hidden:true}]})
