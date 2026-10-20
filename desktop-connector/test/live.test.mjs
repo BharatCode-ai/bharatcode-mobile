@@ -22,3 +22,18 @@ test('live stream bounds unterminated frames', async () => {
   async function* source() { yield Buffer.alloc(1_048_577, 97) }
   await assert.rejects(async () => { for await (const _ of projectEvents(source(), 'ses_one')) {} }, /too large/)
 })
+test('Desktop compatibility events become selected-chat text and request signals', async () => {
+  async function* source() {
+    for(const event of [
+      {id:'evt_message',type:'message.updated',data:{sessionID:'ses_one',info:{id:'msg_one',role:'assistant'}}},
+      {id:'evt_part',type:'message.part.updated',data:{sessionID:'ses_one',part:{id:'prt_one',messageID:'msg_one',type:'text',text:''}}},
+      {id:'evt_1',type:'message.part.delta',data:{sessionID:'ses_one',messageID:'msg_one',partID:'prt_one',field:'text',delta:'Continued'}},
+      {id:'evt_2',type:'permission.asked',data:{sessionID:'ses_one',id:'per_one',metadata:{private:'not a notification field'}}},
+      {id:'evt_3',type:'message.part.delta',data:{sessionID:'ses_other',messageID:'msg_other',field:'text',delta:'Other chat'}},
+    ]) yield Buffer.from(`data: ${JSON.stringify(event)}\n\n`)
+  }
+  const events=[];for await(const event of projectEvents(source(),'ses_one',{desktop:true}))events.push(event)
+  assert.deepEqual(events.map(e=>e.type),['session.next.tool.progress','session.next.text.ended','session.next.text.delta','permission.v2.asked'])
+  assert.equal(events[2].data.assistantMessageID,'msg_one')
+  assert.equal(JSON.stringify(events).includes('private'),false)
+})

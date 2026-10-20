@@ -1,0 +1,126 @@
+import { readFile, writeFile, rename } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+
+const fail = (status, message) => Object.assign(new Error(message), { status })
+const normalizedPermission = item => ({ ...item, action: item.permission, resources: item.patterns ?? [] })
+export function desktopMessage(item) {
+  const info = item.info, parts = item.parts ?? []
+  const texts = parts.filter(p => p.type === 'text').map(p => ({id:p.id,type:'text',text:p.text ?? ''}))
+  const error = info.error?.data?.message ?? info.error?.message
+  if (error) texts.push({id:info.id + '_error',type:'text',text:`The computer reported: ${error}`})
+  return {id:info.id,type:info.role,time:info.time,
+    ...(info.role === 'user' ? {text:texts.map(p=>p.text).join('\n\n')} : {content:[...texts,...parts.filter(p=>p.type==='tool').map(p=>({id:p.id,type:'tool',name:p.tool,state:{...p.state,content:p.state?.output ? [{type:'text',text:p.state.output}] : []}}))]})}
+}
+
+// Desktop's default runtime serves native session metadata but continues chats
+// through its compatibility engine. Keep that same engine and message tables.
+export async function createDesktopAPI({ request, storePath }) {
+  let state = { admissions: {}, selections: {} }
+  try { state = { ...state, ...JSON.parse(await readFile(storePath,'utf8')) } } catch (error) { if(error.code !== 'ENOENT') throw error }
+  let writes = Promise.resolve()
+  const save = () => {
+    const json = JSON.stringify(state)
+    const operation = writes.then(async()=>{await writeFile(storePath+'.tmp',json,{mode:0o600});await rename(storePath+'.tmp',storePath)})
+    writes = operation.catch(()=>{})
+    return operation
+  }
+  const locations = new Set([''])
+  const pending = new Map()
+  const located = (path, directory) => path + (path.includes('?') ? '&' : '?') + new URLSearchParams({directory})
+  async function session(id, signal) {
+    const value = (await request('/session/'+id,'GET',undefined,signal)).data
+    if (!value || typeof value.directory !== 'string') throw fail(502,'Desktop session location unavailable')
+    locations.add(value.directory)
+    return value
+  }
+  async function handle(method, raw, body, signal) {
+    const url = new URL(raw,'http://localhost'), path = url.pathname
+    const match = /^\/api\/session\/([A-Za-z0-9_-]+)\/(message|prompt|interrupt|permission|question|model|agent)$/.exec(path)
+    if (method==='GET' && path==='/api/session') {
+      const result = await request(raw,'GET',undefined,signal)
+      for(const item of result.data.data ?? []) if(item.location?.directory) locations.add(item.location.directory)
+      return {data:result.data}
+    }
+    if (method==='GET' && path==='/api/session/active') {
+      const data={}
+      for(const directory of locations) {
+        const result=await request(located('/session/status',directory),'GET',undefined,signal)
+        for(const [id,value] of Object.entries(result.data ?? {})) if(value.type!=='idle') data[id]={type:'running'}
+      }
+      return {data:{data}}
+    }
+    if(method==='GET' && (path==='/api/model' || path==='/api/agent')) {
+      const directory=url.searchParams.get('location[directory]') ?? ''
+      const result=await request(located(path==='/api/model'?'/provider':'/agent',directory),'GET',undefined,signal)
+      const data=path==='/api/agent' ? (result.data ?? []).filter(a=>!a.hidden).map(a=>({id:a.name,name:a.name,description:a.description,mode:a.mode}))
+        : (result.data.all ?? []).filter(p=>(result.data.connected ?? []).includes(p.id)).flatMap(p=>Object.values(p.models ?? {}).map(m=>({id:m.id,providerID:p.id,name:m.name,enabled:true})))
+      return {data:{data}}
+    }
+    if(method==='GET' && /^\/api\/(permission|question)\/request$/.test(path)) {
+      const kind=path.split('/')[2], directory=url.searchParams.get('location[directory]') ?? ''
+      const result=await request(located('/'+kind,directory),'GET',undefined,signal)
+      return {data:{data:kind==='permission' ? (result.data ?? []).map(normalizedPermission) : result.data ?? []}}
+    }
+    const reply=/^\/api\/session\/([A-Za-z0-9_-]+)\/(permission|question)\/([A-Za-z0-9_-]+)\/reply$/.exec(path)
+    if(method==='POST' && reply) {
+      const [,id,kind,requestID]=reply, info=await session(id,signal)
+      const requests=(await request(located('/'+kind,info.directory),'GET',undefined,signal)).data ?? []
+      if(!requests.some(item=>item.id===requestID && item.sessionID===id)) throw fail(404,'Request resolved or unavailable')
+      const result=await request(located(`/${kind}/${requestID}/reply`,info.directory),'POST',body,signal)
+      return {data:{data:result.data}}
+    }
+    if(!match) return
+    const [,id,kind]=match
+    const info=await session(id,signal)
+    if(method==='GET' && kind==='message') {
+      const params=new URLSearchParams({limit:url.searchParams.get('limit') ?? '50',directory:info.directory})
+      const cursor=url.searchParams.get('cursor'); if(cursor) params.set('before',cursor)
+      const result=await request(`/session/${id}/message?${params}`,'GET',undefined,signal)
+      return {data:{data:(result.data ?? []).map(desktopMessage).reverse(),cursor:{next:result.cursor}}}
+    }
+    if(method==='GET' && (kind==='permission' || kind==='question')) {
+      const result=await request(located('/'+kind,info.directory),'GET',undefined,signal)
+      const data=(result.data ?? []).filter(item=>item.sessionID===id)
+      return {data:{data:kind==='permission'?data.map(normalizedPermission):data}}
+    }
+    if(method==='POST' && (kind==='model' || kind==='agent')) {
+      if(kind==='agent' ? typeof body?.agent!=='string' : typeof body?.model?.id!=='string' || typeof body?.model?.providerID!=='string') throw fail(400,'Invalid session configuration')
+      state.selections[id]={...state.selections[id],...body}; await save(); return {data:{}}
+    }
+    if(method==='POST' && kind==='interrupt') {
+      await request(located(`/session/${id}/abort`,info.directory),'POST',undefined,signal)
+      return {data:{}}
+    }
+    if(method==='POST' && kind==='prompt') {
+      if(!body || !/^msg_[A-Za-z0-9_-]+$/.test(body.id ?? '') || typeof body.prompt?.text!=='string') throw fail(400,'Invalid prompt')
+      const key=id+'.'+body.id, hash=createHash('sha256').update(JSON.stringify(body)).digest('hex')
+      const previous=state.admissions[key]
+      if(previous && previous.hash!==hash) throw fail(409,'Message identity was used for a different prompt')
+      if(pending.has(key)) { await pending.get(key); return {data:{data:{id:body.id}}} }
+      if(previous?.state==='admitted') return {data:{data:{id:body.id}}}
+      if(previous) {
+        // A crash or lost upstream acknowledgement is ambiguous. A matching
+        // stored Desktop message proves admission; never blindly execute again.
+        let existing
+        try { existing=(await request(located(`/session/${id}/message/${body.id}`,info.directory),'GET',undefined,signal)).data } catch(error) { if(error.status!==404) throw error }
+        if(existing?.info?.id===body.id && (existing.parts ?? []).filter(p=>p.type==='text').map(p=>p.text).join('')===body.prompt.text) { state.admissions[key]={hash,state:'admitted'}; await save(); return {data:{data:{id:body.id}}} }
+        throw fail(409,'Desktop delivery is unconfirmed. Check the conversation on your computer before continuing.')
+      }
+      if(Object.keys(state.admissions).length>=10000) throw fail(507,'Mobile admission history is full')
+      const operation=(async()=>{
+        state.admissions[key]={hash,state:'forwarding'}; await save()
+        const selection=state.selections[id] ?? {}, model=selection.model ?? info.model
+        await request(located(`/session/${id}/prompt_async`,info.directory),'POST',{
+          messageID:body.id, agent:selection.agent ?? info.agent,
+          ...(model ? {model:{providerID:model.providerID,modelID:model.id},variant:model.variant} : {}),
+          parts:[{type:'text',text:body.prompt.text}],
+        },signal)
+        state.admissions[key]={hash,state:'admitted'}; await save()
+      })()
+      pending.set(key,operation)
+      try { await operation } finally { pending.delete(key) }
+      return {data:{data:{id:body.id}}}
+    }
+  }
+  return {handle}
+}

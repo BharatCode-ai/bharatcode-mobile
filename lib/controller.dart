@@ -835,7 +835,11 @@ class AppController extends ChangeNotifier {
       online = true;
       error = null;
     } catch (e) {
-      if (device?.id == desktopID) _failed(e);
+      if (requestID == _sessionRequestID &&
+          identical(api, _api) &&
+          device?.id == desktopID) {
+        _failed(e);
+      }
     } finally {
       if (requestID == _sessionRequestID) {
         loadingSessions = false;

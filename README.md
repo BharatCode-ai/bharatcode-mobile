@@ -4,7 +4,11 @@ A Flutter companion for BharatCode Desktop on iOS and Android. Pair with a compu
 
 ## Current state
 
-Under development. The application and Desktop connector are being built against BharatCode Desktop's v2 session API.
+The first development build implements QR pairing with Desktop approval, saved computers, searchable and paginated chats, streamed replies, prompt retries, agent/model selection, stop, permission and question replies, working-tree diffs, and read-only project files. Drafts and a recent confirmed message window survive reopening; the app reconciles with Desktop when it reconnects.
+
+The interface follows the selected warm dark design. Sample content is available only through **Explore a sample workspace** or an explicit preview flag.
+
+The connector uses the normal Desktop-owned server and its compatibility API for existing message history and execution. Use the integrated development Desktop build; the published beta alone does not include mobile access. Physical-phone, iOS, background notifications, and terminal qualification are separate from this development milestone.
 
 - [Screen and interaction reference](docs/design/SCREEN-EXPERIENCES.md)
 - [Selected visual target](docs/design/assets/selected-conversation.png)

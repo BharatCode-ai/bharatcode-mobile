@@ -311,6 +311,25 @@ void main() {
       await second.stream.close();
     },
   );
+  test('obsolete failure cannot mark a replacement API for the same computer offline', () async {
+    final first = DelayedPageApi(), second = FakeApi('pc_one');
+    var call = 0;
+    final controller = AppController(
+      apiFactory: (_, _) => call++ == 0 ? first : second,
+    );
+    await controller.connectDevice(computer);
+    first.page = Completer<Map<String, dynamic>>();
+    final loading = controller.refreshSessions();
+    await Future<void>.delayed(Duration.zero);
+    await controller.connectDevice(computer);
+    first.page!.completeError(const ApiException(0, 'Old connection failed'));
+    await loading;
+    expect(controller.online, true);
+    expect(controller.error, isNull);
+    controller.dispose();
+    await first.stream.close();
+    await second.stream.close();
+  });
   test(
     'recovery after many new messages resets to a contiguous window and cursor',
     () async {

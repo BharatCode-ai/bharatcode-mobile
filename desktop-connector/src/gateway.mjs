@@ -4,6 +4,8 @@ import { randomInt } from 'node:crypto'
 import { once } from 'node:events'
 import { projectEvents } from './live.mjs'
 import { projectFile } from './files.mjs'
+import { createDesktopAPI } from './desktop-api.mjs'
+import { join, dirname } from 'node:path'
 import { openDevices, secret, verifier, matches } from './devices.mjs'
 import { allowed, sidecarOrigin, tunnelOrigin } from './policy.mjs'
 
@@ -16,6 +18,7 @@ export async function createGateway(options) {
   if (!options.password) throw new Error('Sidecar password required')
   const now = options.now ?? Date.now
   const claims = new Map(), active = new Map()
+  const desktopAPI = options.runtime === 'desktop' ? await createDesktopAPI({ request: upstreamCall, storePath: join(dirname(options.storePath), 'admissions.json') }) : undefined
   let qr, closed = false
   const metadata = () => ({ id: registry.desktopID, name: options.name ?? hostname(), platform: platform() })
   function issuePairing(origin) {
@@ -105,7 +108,7 @@ export async function createGateway(options) {
         res.write(': connected\n\n')
         const heartbeat = setInterval(() => { if (!res.destroyed) res.write(': heartbeat\n\n') }, 10_000)
         try {
-          for await (const event of projectEvents(response.body, live[1])) {
+          for await (const event of projectEvents(response.body, live[1], { desktop: options.runtime === 'desktop' })) {
             if (!registry.authenticate(bearer)) break
             if (!res.write(`data: ${JSON.stringify(event)}\n\n`)) await once(res, 'drain', { signal: cancellation.signal })
           }
@@ -137,19 +140,34 @@ export async function createGateway(options) {
       const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await rawBody(req) : undefined
       if (!registry.authenticate(bearer)) throw status(401, 'Device authorization revoked')
       if (body && !/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw status(415, 'JSON required')
+      if (desktopAPI) {
+        const result = await desktopAPI.handle(req.method, req.url, body?.length ? JSON.parse(body.toString()) : undefined, cancellation.signal)
+        if (result) {
+          if (!registry.authenticate(bearer)) throw status(401, 'Device authorization revoked')
+          return reply(res, result.status ?? 200, result.data)
+        }
+      }
       forward(req, res, device.id, body)
     } catch (error) {
       if (!res.headersSent) reply(res, error.status ?? 500, { error: error.status ? error.message : 'Connection request failed' })
       else res.destroy()
     }
   }
-  async function upstreamJSON(path, signal) {
-    const response = await fetch(upstream + path, { headers: { authorization: 'Basic ' + Buffer.from(`${options.username ?? 'opencode'}:${options.password}`).toString('base64') }, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]) })
-    if (!response.ok) { await response.body?.cancel(); throw status(response.status, 'Computer could not load project changes') }
+  async function upstreamCall(path, method = 'GET', body, signal) {
+    const response = await fetch(upstream + path, {
+      method, headers: {
+        authorization: 'Basic ' + Buffer.from(`${options.username ?? 'opencode'}:${options.password}`).toString('base64'),
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+      }, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error',
+      signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(20_000)]),
+    })
+    if (!response.ok) { await response.body?.cancel(); throw status(response.status, 'Computer could not complete the request') }
     const chunks = []; let size = 0
-    for await (const chunk of response.body) { size += chunk.length; if (size > 16_777_216) throw status(413, 'Project changes are too large'); chunks.push(chunk) }
-    return JSON.parse(Buffer.concat(chunks).toString())
+    for await (const chunk of response.body) { size += chunk.length; if (size > 16_777_216) throw status(413, 'Computer response is too large'); chunks.push(chunk) }
+    const text = Buffer.concat(chunks).toString()
+    return { data: text ? JSON.parse(text) : undefined, cursor: response.headers.get('x-next-cursor') ?? undefined }
   }
+  async function upstreamJSON(path, signal) { return (await upstreamCall(path, 'GET', undefined, signal)).data }
   function forward(req, res, deviceID, body) {
     const target = new URL(req.url, upstream)
     const headers = { authorization: 'Basic ' + Buffer.from(`${options.username ?? 'opencode'}:${options.password}`).toString('base64'), accept: req.headers.accept ?? 'application/json' }

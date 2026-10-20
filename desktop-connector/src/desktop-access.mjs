@@ -25,7 +25,7 @@ export async function createMobileAccess(options) {
       errorKey = undefined; emit()
       const connection = options.getConnection()
       if (!connection?.password) throw new Error('Protected local Desktop sidecar required')
-      gateway = await createGateway({ upstream: connection.url, username: connection.username ?? 'opencode', password: connection.password, storePath, onPairingRequest: claim => { requests.push(claim); emit() } })
+      gateway = await createGateway({ runtime: 'desktop', upstream: connection.url, username: connection.username ?? 'opencode', password: connection.password, storePath, onPairingRequest: claim => { requests.push(claim); emit() } })
       try {
         const target = await gateway.listen()
         tunnel = await (options.tunnelFactory ?? connectTunnel)({ target, storePath: join(root, 'tunnel') })
