@@ -98,6 +98,12 @@ class AppController extends ChangeNotifier {
   }
 
   void setDraft(String value) {
+    assert(() {
+      debugPrint(
+        'BCMobile draft edited nonempty=${value.isNotEmpty} selected=${selectedID != null}',
+      );
+      return true;
+    }());
     _drafts[_draftKey] = value;
     if (!previewMode && device != null && selectedID != null) {
       unawaited(
@@ -648,6 +654,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> send() async {
+    assert(() {
+      debugPrint(
+        'BCMobile send attempt busy=$sending draft=${draft.trim().isNotEmpty} selected=${selectedID != null} online=$online',
+      );
+      return true;
+    }());
     if (sending || draft.trim().isEmpty || selectedID == null || !online) {
       return;
     }

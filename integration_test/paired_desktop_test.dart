@@ -53,12 +53,34 @@ void main() {
       () => controller.modelName == qwen['name'],
       'Select the Desktop model',
     );
+    await tester.pumpAndSettle();
 
     final previous = controller.messages.map((m) => m.id).toSet();
     const marker = 'BC_NATIVE_LIVE_OK';
     const prompt = 'Reply exactly $marker.';
     await tester.enterText(find.byKey(const Key('composer')), prompt);
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(
+      controller.draft == prompt,
+      true,
+      reason: 'Typing must update the conversation draft.',
+    );
+    expect(controller.online, true, reason: 'Sending must remain online.');
+    expect(controller.selectedID == fixture.id, true);
+    expect(controller.sending, false);
+    expect(
+      tester
+          .widget<IconButton>(
+            find
+                .ancestor(
+                  of: find.byTooltip('Send message'),
+                  matching: find.byType(IconButton),
+                )
+                .first,
+          )
+          .onPressed,
+      isNotNull,
+    );
     await tester.tap(find.byTooltip('Send message'));
     await waitFor(
       tester,
