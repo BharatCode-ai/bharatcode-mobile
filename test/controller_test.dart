@@ -66,7 +66,8 @@ class FakeApi extends ApiClient {
   Stream<Map<String, dynamic>> liveEvents(String session) => stream.stream;
   String? wireCursor;
   int messageReads = 0;
-  bool failMessageReads = false;
+  bool failMessageReads = false, replayAvailable = true;
+  int replaySubscriptions = 0;
   List<Map<String, dynamic>> wireMessages = [];
   List<Map<String, dynamic>> pendingPermissions = [];
   final sent = <String>[];
@@ -81,6 +82,7 @@ class FakeApi extends ApiClient {
       ? {
           'protocol': 1,
           'desktop': {'id': token},
+          'capabilities': {'replay': replayAvailable},
         }
       : {
           'data': path.endsWith('active')
@@ -108,8 +110,11 @@ class FakeApi extends ApiClient {
   }
 
   @override
-  Stream<Map<String, dynamic>> events(String session, {int after = 0}) =>
-      stream.stream;
+  Stream<Map<String, dynamic>> events(String session, {int after = 0}) {
+    replaySubscriptions++;
+    return stream.stream;
+  }
+
   @override
   Future<void> prompt(String session, String id, String text) async {
     sent.add('$session/$id/$text');
@@ -186,6 +191,65 @@ void main() {
       for (final api in apis) {
         await api.stream.close();
       }
+    },
+  );
+  test(
+    'Desktop without replay uses live updates and confirmed history',
+    () async {
+      final api = FakeApi('pc_one')..replayAvailable = false;
+      final controller = AppController(apiFactory: (_, _) => api);
+      await controller.connectDevice(computer);
+      await controller.selectSession(conversation);
+      expect(api.replaySubscriptions, 0);
+      api.stream.add({
+        'id': 'evt_live_only',
+        'type': 'session.next.text.delta',
+        'data': {
+          'sessionID': conversation.id,
+          'assistantMessageID': 'msg_live',
+          'textID': 'txt_live',
+          'delta': 'Live reply',
+        },
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.messages.single.text, 'Live reply');
+      controller.setDraft('Continue');
+      await controller.send();
+      expect(api.sent, hasLength(1));
+      controller.dispose();
+      await api.stream.close();
+    },
+  );
+  test('revoked event credentials disable sending immediately', () async {
+    final api = FakeApi('pc_one');
+    final controller = AppController(apiFactory: (_, _) => api);
+    await controller.connectDevice(computer);
+    await controller.selectSession(conversation);
+    api.stream.addError(const ApiException(401, 'Pair again'));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.online, false);
+    expect(controller.error, 'Pair again');
+    controller.setDraft('Must not be sent');
+    await controller.send();
+    expect(api.sent, isEmpty);
+    controller.dispose();
+    await api.stream.close();
+  });
+  test(
+    'event stream failure does not disable a healthy prompt connection',
+    () async {
+      final api = FakeApi('pc_one');
+      final controller = AppController(apiFactory: (_, _) => api);
+      await controller.connectDevice(computer);
+      await controller.selectSession(conversation);
+      api.stream.addError(const ApiException(502, 'Replay unavailable'));
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.online, true);
+      controller.setDraft('A message while updates reconnect');
+      await controller.send();
+      expect(api.sent, hasLength(1));
+      controller.dispose();
+      await api.stream.close();
     },
   );
   test('a history refresh failure does not undo confirmed delivery', () async {

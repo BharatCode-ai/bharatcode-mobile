@@ -84,7 +84,7 @@ export async function createGateway(options) {
       const device = bearer && registry.authenticate(bearer)
       if (!device) throw status(401, 'Device authorization required')
       if (req.method === 'GET' && req.url === '/mobile/v1/health') return reply(res, 200, {
-        protocol: 1, desktop: metadata(), capabilities: { sessions: true, prompts: true, replay: true, permissions: true, questions: true, models: true, live: true, changes: true, files: true, terminal: false },
+        protocol: 1, desktop: metadata(), capabilities: { sessions: true, prompts: true, replay: options.runtime !== 'desktop', permissions: true, questions: true, models: true, live: true, changes: true, files: true, terminal: false },
       })
       if (req.method === 'DELETE' && req.url === '/mobile/v1/device') {
         await revoke(device.id)

@@ -40,7 +40,7 @@ class AppController extends ChangeNotifier {
   ApiClient? _loadingSessionsAPI;
   int _sessionRequestID = 0;
   int _pairGeneration = 0;
-  bool _disposed = false;
+  bool _disposed = false, _replayAvailable = true;
 
   final ApiClient Function(Uri, String) _apiFactory;
   AppController({
@@ -549,25 +549,28 @@ class AppController extends ChangeNotifier {
     final api = _api, session = selectedID;
     if (api == null || session == null || generation != _generation) return;
     _cancelStreams();
-    _subscription = api
-        .events(session, after: _sequence)
-        .listen(
-          (event) {
-            if (generation != _generation) return;
-            final sequence = event['seq'] ?? (event['durable'] as Map?)?['seq'];
-            if (sequence is int && sequence <= _sequence) return;
-            if (sequence is int && sequence > _seenSequence) {
-              _seenSequence = sequence;
-            }
-            online = true;
-            _queueRefresh(generation);
-          },
-          onError: (Object error) => _lostStream(generation, error),
-          onDone: () => _lostStream(
-            generation,
-            const ApiException(0, 'Connection interrupted.'),
-          ),
-        );
+    if (_replayAvailable) {
+      _subscription = api
+          .events(session, after: _sequence)
+          .listen(
+            (event) {
+              if (generation != _generation) return;
+              final sequence =
+                  event['seq'] ?? (event['durable'] as Map?)?['seq'];
+              if (sequence is int && sequence <= _sequence) return;
+              if (sequence is int && sequence > _seenSequence) {
+                _seenSequence = sequence;
+              }
+              online = true;
+              _queueRefresh(generation);
+            },
+            onError: (Object error) => _lostStream(generation, error),
+            onDone: () => _lostStream(
+              generation,
+              const ApiException(0, 'Connection interrupted.'),
+            ),
+          );
+    }
     _liveSubscription = api
         .liveEvents(session)
         .listen(
@@ -619,8 +622,14 @@ class AppController extends ChangeNotifier {
     _cancelStreams();
     _liveTexts.clear();
     _renderMessages();
-    online = false;
-    error = 'Reconnecting to your computer. Your draft is saved.';
+    // Event delivery can fail independently of the protected HTTP API. Keep
+    // sending available until a real request fails, and recover from history.
+    if (e is ApiException && e.status == 401) {
+      _reconnectTimer?.cancel();
+      _failed(e);
+      return;
+    }
+    error = 'Reconnecting conversation updates. Your draft is saved.';
     changed();
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 4), () async {
@@ -631,6 +640,8 @@ class AppController extends ChangeNotifier {
         error = null;
         _subscribe(generation);
       } catch (e) {
+        if (generation != _generation) return;
+        _failed(e);
         _lostStream(generation, e);
       }
     });
@@ -817,6 +828,7 @@ class AppController extends ChangeNotifier {
           'Desktop identity or protocol changed. Pair this computer again.',
         );
       }
+      _replayAvailable = (health['capabilities'] as Map?)?['replay'] != false;
       await refreshSessions();
       if (generation != _generation) return;
     } catch (e) {

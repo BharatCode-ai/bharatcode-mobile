@@ -224,3 +224,12 @@ test('mobile live endpoint projects native events and closes on device revocatio
     assert.deepEqual(c.seen.map(item => item.url), ['/session/ses_one', '/api/event?directory=%2Fwork%2Ffixture+project'])
   } finally { await response.body.cancel() }
 })
+
+test('Desktop advertises live history recovery without a native replay journal', async t => {
+  const c = await setup(t, { runtime: 'desktop' })
+  const paired = await c.pair()
+  const response = await fetch(c.origin + '/mobile/v1/health', { headers: { authorization: `Bearer ${paired.token}` } })
+  const health = await response.json()
+  assert.equal(health.capabilities.replay, false)
+  assert.equal(health.capabilities.live, true)
+})
