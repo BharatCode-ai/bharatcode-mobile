@@ -52,4 +52,13 @@ flutter test integration_test/paired_desktop_test.dart -d <device-id> --no-unins
 
 Keep `--no-uninstall`: Flutter's default test cleanup removes the app and its saved pairing. After testing, install the normal application entry point again with an update that preserves app data; the integration runner is a separate test entry point. A successful run covers only the device and Desktop used for that run.
 
+The other native test targets cover:
+
+- `paired_navigation_test.dart`: search, projects, models, agents, files, clipboard, working diffs, and new chats. Prepare a tracked `README.md` change containing `BC_NATIVE_DIFF_OK` in the fixture. The test leaves a known draft; run it again with `--dart-define=BC_E2E_VERIFY_RESTART_DRAFT=true` after restarting the device to verify and clear that draft.
+- `paired_stop_test.dart`: send one fixture prompt, tap Stop while Desktop reports it running, and verify that execution becomes idle.
+- `paired_device_test.dart`: remove the computer through the UI and verify that its old credential receives HTTP 401. This revokes the test phone's pairing; pair again afterward.
+- `pairing_test.dart`: enter a short-lived pairing payload from an app-private file, wait for matching Desktop approval, and verify secure persistence. See the test's setup comment; never put pairing payloads in command-line defines.
+
+For emulator graphics diagnosis, the native commands accept `--no-enable-impeller`. The shared `test_driver/integration_test.dart` also supports `flutter drive` with rendering overrides. Record the rendering configuration alongside native test results.
+
 The BharatCode mark comes from the Desktop project. Inter and JetBrains Mono are bundled with their font license notices in `assets/fonts`.
