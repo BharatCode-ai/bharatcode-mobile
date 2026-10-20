@@ -149,7 +149,7 @@ export async function createGateway(options) {
       if (!allowed(req.method, req.url)) throw status(403, 'Route is not available to mobile devices')
       const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await rawBody(req) : undefined
       if (!registry.authenticate(bearer)) throw status(401, 'Device authorization revoked')
-      if (body && !/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw status(415, 'JSON required')
+      if (body?.length && !/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw status(415, 'JSON required')
       if (desktopAPI) {
         const result = await desktopAPI.handle(req.method, req.url, body?.length ? JSON.parse(body.toString()) : undefined, cancellation.signal)
         if (result) {

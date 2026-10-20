@@ -132,6 +132,21 @@ test('device credential proxies only allowed routes and never leaks master crede
   assert.equal(c.seen.length, 1)
 })
 
+test('bodyless Desktop interrupts work while nonempty bodies still require JSON', async t => {
+  const c = await setup(t, {runtime:'desktop'})
+  const {token} = await c.pair()
+  const headers = {authorization:`Bearer ${token}`}
+  const response = await fetch(c.origin+'/api/session/ses_one/interrupt',{method:'POST',headers})
+  assert.equal(response.status,200)
+  const aborts=c.seen.filter(r=>r.url.startsWith('/session/ses_one/abort?'))
+  assert.equal(aborts.length,1)
+  assert.equal(aborts[0].method,'POST')
+  const before=c.seen.length
+  const rejected=await fetch(c.origin+'/api/session/ses_one/interrupt',{method:'POST',headers:{...headers,'content-type':'text/plain'},body:'{}'})
+  assert.equal(rejected.status,415)
+  assert.equal(c.seen.length,before)
+})
+
 test('persisted registry contains verifiers, survives restart and supports individual revocation', async t => {
   const c = await setup(t)
   const first = await c.pair()
