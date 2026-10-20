@@ -44,4 +44,12 @@ npm test
 
 See [Desktop integration](desktop-integration/README.md) to add the connector and **Mobile devices** settings to the pinned Desktop source. A local connector test pass is separate from a real phone/relay/Desktop acceptance test.
 
+The native integration test requires an already paired Android device and a Desktop conversation titled `BC Mobile qualification baseline` in a directory ending in `/mobile-qualification-project`. It sends real prompts in that isolated project. The optional controls check asks the model a question, approves a `printf` command, and reads `README.md`.
+
+```sh
+flutter test integration_test/paired_desktop_test.dart -d <device-id> --no-uninstall --dart-define=BC_E2E_CONTROLS=true
+```
+
+Keep `--no-uninstall`: Flutter's default test cleanup removes the app and its saved pairing. After testing, install the normal application entry point again with an update that preserves app data; the integration runner is a separate test entry point. A successful run covers only the device and Desktop used for that run.
+
 The BharatCode mark comes from the Desktop project. Inter and JetBrains Mono are bundled with their font license notices in `assets/fonts`.
