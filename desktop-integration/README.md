@@ -19,3 +19,26 @@ The script checks the source revision and each edit context. It can be run again
 Remote access starts only when the user chooses **Connect phone**. Once enabled, the same tunnel identity is restored at the next launch until remote access is turned off. Tunnel identity, device verifiers and the enablement preference are kept in the Desktop app's private data directory. The connector rejects browser-origin calls and exposes only its mobile API policy.
 
 The already-published Desktop beta does not include this source integration. Installing that beta alone is not proof that mobile pairing is available.
+
+## Linux development profiles and browser handoff
+
+An isolated development launcher must preserve the desktop session's browser environment before changing its own `XDG_*_HOME` directories. Otherwise Linux can choose a different default browser and Firefox profile for sign-in.
+
+For launchers that isolate these directories, install the executable `linux-host-browser/xdg-open` and `linux-host-browser/with-host-environment` helpers together in a private application directory. Add the following before the launcher's existing XDG overrides, replacing `/path/to/installed/helpers` with that directory:
+
+```sh
+export BHARATCODE_HOST_BROWSER_ENV=1
+export BHARATCODE_HOST_XDG_CONFIG_HOME="${XDG_CONFIG_HOME-}"
+export BHARATCODE_HOST_XDG_DATA_HOME="${XDG_DATA_HOME-}"
+export BHARATCODE_HOST_XDG_CACHE_HOME="${XDG_CACHE_HOME-}"
+export BHARATCODE_HOST_XDG_STATE_HOME="${XDG_STATE_HOME-}"
+export PATH="/path/to/installed/helpers:$PATH"
+```
+
+The helper restores those values only in the external desktop handoff process and delegates to `/usr/bin/xdg-open`. Unset host values remain unset. The existing desktop browser preference determines where the link opens; no new-window or browser-profile flags are added. App data isolation remains in place. If the application reloads its login-shell `PATH`, the helper directory must also be discoverable in that restored path. For an unmarked process, the helper preserves its environment and passes the original arguments straight to the system opener.
+
+Run its regression tests with:
+
+```sh
+python3 -m unittest discover -s desktop-integration/linux-host-browser -p 'test_*.py'
+```

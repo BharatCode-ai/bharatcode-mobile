@@ -1,0 +1,28 @@
+#!/bin/sh
+# Run a desktop handoff without inheriting the application's private XDG roots.
+set -eu
+if [ "${BHARATCODE_HOST_BROWSER_ENV-}" = 1 ]; then
+    if [ -n "${BHARATCODE_HOST_XDG_CONFIG_HOME-}" ]; then
+        export XDG_CONFIG_HOME="$BHARATCODE_HOST_XDG_CONFIG_HOME"
+    else
+        unset XDG_CONFIG_HOME
+    fi
+    if [ -n "${BHARATCODE_HOST_XDG_DATA_HOME-}" ]; then
+        export XDG_DATA_HOME="$BHARATCODE_HOST_XDG_DATA_HOME"
+    else
+        unset XDG_DATA_HOME
+    fi
+    if [ -n "${BHARATCODE_HOST_XDG_CACHE_HOME-}" ]; then
+        export XDG_CACHE_HOME="$BHARATCODE_HOST_XDG_CACHE_HOME"
+    else
+        unset XDG_CACHE_HOME
+    fi
+    if [ -n "${BHARATCODE_HOST_XDG_STATE_HOME-}" ]; then
+        export XDG_STATE_HOME="$BHARATCODE_HOST_XDG_STATE_HOME"
+    else
+        unset XDG_STATE_HOME
+    fi
+    unset BHARATCODE_HOST_BROWSER_ENV BHARATCODE_HOST_XDG_CONFIG_HOME \
+        BHARATCODE_HOST_XDG_DATA_HOME BHARATCODE_HOST_XDG_CACHE_HOME BHARATCODE_HOST_XDG_STATE_HOME
+fi
+exec "$@"
