@@ -9,9 +9,7 @@ import 'paired_desktop_test.dart' show waitFor;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  testWidgets('Stop interrupts the actual Desktop task waiting for an answer', (
-    tester,
-  ) async {
+  testWidgets('Stop interrupts an actual running Desktop task', (tester) async {
     final c = AppController();
     addTearDown(c.dispose);
     await tester.pumpWidget(BharatCodeApp(controller: c));
@@ -28,20 +26,43 @@ void main() {
       'Open the Stop fixture',
     );
     await tester.pumpAndSettle();
+    expect(c.draft.isEmpty && c.unconfirmedText == null, true);
+    final device = c.device!;
+    final api = ApiClient(Uri.parse(device.origin), device.token);
+    addTearDown(api.close);
+    Future<bool> running() async {
+      final active = await api.request('GET', '/api/session/active');
+      return (active['data'] as Map?)?.containsKey(fixture.id) == true;
+    }
+
+    if (!const bool.fromEnvironment('BC_E2E_RESUME_STOP')) {
+      expect(
+        await running(),
+        false,
+        reason: 'Keep any existing task before starting a Stop fixture.',
+      );
+      expect(c.pendingRequests.isEmpty, true);
+      const prompt =
+          'Use the question tool to ask "Stop check?" with options "Continue" and "Cancel". Wait for my answer. Do not run commands or modify files.';
+      await tester.enterText(find.byKey(const Key('composer')), prompt);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Send message'));
+      await waitFor(
+        tester,
+        () => !c.sending && c.draft.isEmpty && c.unconfirmedText == null,
+        'Admit the Stop fixture prompt',
+      );
+    }
+    var active = await running();
+    final activeDeadline = DateTime.now().add(const Duration(seconds: 30));
+    while (!active && DateTime.now().isBefore(activeDeadline)) {
+      await tester.pump(const Duration(milliseconds: 500));
+      active = await running();
+    }
     expect(
-      c.draft.isEmpty && c.unconfirmedText == null && c.pendingRequests.isEmpty,
+      active,
       true,
-    );
-    const prompt =
-        'Use the question tool to ask "Stop check?" with options "Continue" and "Cancel". Wait for my answer. Do not run commands or modify files.';
-    await tester.enterText(find.byKey(const Key('composer')), prompt);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Send message'));
-    await waitFor(
-      tester,
-      () => c.pendingRequests.any((r) => r.question),
-      'Wait for the real Desktop task',
-      timeout: const Duration(minutes: 3),
+      reason: 'Stop must target a task that is actually running.',
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Stop task'));
@@ -51,14 +72,10 @@ void main() {
       'Send the actual interrupt',
     );
 
-    final device = c.device!;
-    final api = ApiClient(Uri.parse(device.origin), device.token);
-    addTearDown(api.close);
     var idle = false;
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (DateTime.now().isBefore(deadline)) {
-      final active = await api.request('GET', '/api/session/active');
-      if ((active['data'] as Map?)?.containsKey(fixture.id) != true) {
+      if (!await running()) {
         idle = true;
         break;
       }
