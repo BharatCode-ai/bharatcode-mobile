@@ -323,6 +323,27 @@ void main() {
     controller.dispose();
     await api.stream.close();
   });
+  test('model and agent labels belong to their conversation', () async {
+    final controller = AppController.preview();
+    final first = controller.sessions.first;
+    final second = controller.sessions.last;
+    await controller.selectSession(first);
+    await controller.switchConfiguration('model', {
+      'id': 'model_a',
+      'name': 'Model A',
+    });
+    await controller.switchConfiguration('agent', {
+      'id': 'plan',
+      'name': 'Plan',
+    });
+    await controller.selectSession(second);
+    expect(controller.modelName, 'Desktop model');
+    expect(controller.agentName, 'Build');
+    await controller.selectSession(first);
+    expect(controller.modelName, 'Model A');
+    expect(controller.agentName, 'Plan');
+    controller.dispose();
+  });
   test('chat navigation does not wait for an old stream to close', () async {
     final api = DelayedCancelApi();
     final controller = AppController(apiFactory: (_, _) => api);

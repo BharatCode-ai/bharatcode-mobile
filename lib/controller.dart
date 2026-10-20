@@ -13,7 +13,10 @@ class AppController extends ChangeNotifier {
   bool previewMode = false, busy = false, online = false, sending = false;
   String? error, confirmation, selectedID, messageCursor, sessionCursor;
   String search = '', projectFilter = 'All projects', resolution = '';
-  String agentName = 'Build', modelName = 'Desktop model';
+  final Map<String, Map<String, String>> _configurationNames = {};
+  String get agentName => _configurationNames[_draftKey]?['agent'] ?? 'Build';
+  String get modelName =>
+      _configurationNames[_draftKey]?['model'] ?? 'Desktop model';
   int tab = 0, pairingRevision = 0, _generation = 0, _sequence = 0;
   List<DesktopDevice> devices = [];
   DesktopDevice? device;
@@ -489,6 +492,7 @@ class AppController extends ChangeNotifier {
     String kind,
     Map<String, dynamic> item,
   ) async {
+    final key = _draftKey, generation = _generation;
     try {
       if (!previewMode) {
         await _api!.request(
@@ -501,14 +505,11 @@ class AppController extends ChangeNotifier {
                 },
         );
       }
-      if (kind == 'agent') {
-        agentName = '${item['name'] ?? item['id']}';
-      } else {
-        modelName = '${item['name'] ?? item['id']}';
-      }
+      _configurationNames.putIfAbsent(key, () => {})[kind] =
+          '${item['name'] ?? item['id']}';
       changed();
     } catch (e) {
-      _failed(e);
+      if (generation == _generation) _failed(e);
     }
   }
 
