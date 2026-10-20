@@ -17,7 +17,8 @@ const rules = [
 ]
 
 export function allowed(method, raw) {
-  if (!raw.startsWith('/') || raw.startsWith('//') || /\\|%(2f|5c|2e|00)/i.test(raw)) return false
+  const rawPath = raw.split(/[?#]/, 1)[0]
+  if (!raw.startsWith('/') || raw.startsWith('//') || /\\|%(2f|5c|2e|00)/i.test(rawPath) || /%00|\x00/i.test(raw)) return false
   const url = new URL(raw, 'http://localhost')
   return rules.some(([verb, path, keys]) => verb === method && path.test(url.pathname) && [...url.searchParams.keys()].every(key => keys.includes(key)))
 }
