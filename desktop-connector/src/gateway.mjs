@@ -97,7 +97,14 @@ export async function createGateway(options) {
       res.once('close', () => { cancellation.abort(); active.get(device.id)?.delete(abortIncoming); if (!active.get(device.id)?.size) active.delete(device.id) })
       const live = /^\/mobile\/v1\/session\/([A-Za-z0-9_-]+)\/live$/.exec(req.url)
       if (req.method === 'GET' && live) {
-        const response = await fetch(upstream + '/api/event', {
+        let directory
+        if (options.runtime === 'desktop') {
+          const session = await upstreamJSON('/session/' + live[1], cancellation.signal)
+          if (typeof session?.directory !== 'string') throw status(502, 'Desktop session location unavailable')
+          directory = session.directory
+        }
+        const eventPath = '/api/event' + (directory === undefined ? '' : '?' + new URLSearchParams({ directory }))
+        const response = await fetch(upstream + eventPath, {
           headers: { authorization: 'Basic ' + Buffer.from(`${options.username ?? 'opencode'}:${options.password}`).toString('base64'), accept: 'text/event-stream' },
           redirect: 'error', signal: cancellation.signal,
         })
@@ -110,9 +117,7 @@ export async function createGateway(options) {
         try {
           for await (const event of projectEvents(response.body, live[1], { desktop: options.runtime === 'desktop', resolveMessage: async id => {
             if (!/^[A-Za-z0-9_-]+$/.test(id)) return
-            const session = await upstreamJSON('/session/' + live[1], cancellation.signal)
-            if (typeof session.directory !== 'string') return
-            return upstreamJSON(`/session/${live[1]}/message/${id}?` + new URLSearchParams({ directory: session.directory }), cancellation.signal)
+            return upstreamJSON(`/session/${live[1]}/message/${id}?` + new URLSearchParams({ directory }), cancellation.signal)
           } })) {
             if (!registry.authenticate(bearer)) break
             if (!res.write(`data: ${JSON.stringify(event)}\n\n`)) await once(res, 'drain', { signal: cancellation.signal })

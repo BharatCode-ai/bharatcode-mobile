@@ -10,6 +10,7 @@ async function setup(t, options = {}) {
   const seen = []
   const upstream = createServer((req, res) => {
     seen.push({ url: req.url, method: req.method, headers: req.headers })
+    if (req.url === '/session/ses_one') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ id: 'ses_one', directory: '/work/fixture project' })); return }
     if (req.url === '/api/model') {
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify({ data: [{ id: 'model_one', providerID: 'provider_one', name: 'Configured model', enabled: true, request: { headers: { authorization: 'secret-provider-key' } }, api: { settings: { apiKey: 'secret-provider-key' } } }] }))
@@ -17,7 +18,7 @@ async function setup(t, options = {}) {
     }
     if (req.url === '/api/session/ses_changes') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: { location: { directory: '/work/storefront' } } })); return }
     if (req.url.startsWith('/vcs/diff?')) { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify([{ file: 'address.ts', patch: '@@ -1 +1 @@\n-old\n+new', additions: 1, deletions: 1 }])); return }
-    if (req.url === '/api/event') {
+    if (req.url === '/api/event' || req.url === '/api/event?directory=%2Fwork%2Ffixture+project') {
       res.writeHead(200, { 'content-type': 'text/event-stream' })
       for (const event of [
         { id: 'evt_live', type: 'session.next.text.delta', data: { sessionID: 'ses_one', assistantMessageID: 'msg_one', textID: 'txt_one', delta: 'Hello' } },
@@ -212,4 +213,14 @@ test('mobile live endpoint projects native events and closes on device revocatio
   assert.equal(c.seen[0].url, '/api/event')
   await c.gateway.revoke(paired.device.id)
   await assert.rejects(async () => { while (!(await reader.read()).done) {} })
+})
+
+ test('Desktop live subscription uses the selected session project directory', async t => {
+  const c = await setup(t, { runtime: 'desktop' })
+  const paired = await c.pair()
+  const response = await fetch(c.origin + '/mobile/v1/session/ses_one/live', { headers: { authorization: `Bearer ${paired.token}` } })
+  try {
+    assert.equal(response.status, 200)
+    assert.deepEqual(c.seen.map(item => item.url), ['/session/ses_one', '/api/event?directory=%2Fwork%2Ffixture+project'])
+  } finally { await response.body.cancel() }
 })
