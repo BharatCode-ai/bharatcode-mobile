@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createServer } from 'node:http'
+import { createServer, request } from 'node:http'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +13,17 @@ async function setup(t, options = {}) {
     if (req.url === '/api/model') {
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify({ data: [{ id: 'model_one', providerID: 'provider_one', name: 'Configured model', enabled: true, request: { headers: { authorization: 'secret-provider-key' } }, api: { settings: { apiKey: 'secret-provider-key' } } }] }))
+      return
+    }
+    if (req.url === '/api/session/ses_changes') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: { location: { directory: '/work/storefront' } } })); return }
+    if (req.url.startsWith('/vcs/diff?')) { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify([{ file: 'address.ts', patch: '@@ -1 +1 @@\n-old\n+new', additions: 1, deletions: 1 }])); return }
+    if (req.url === '/api/event') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      for (const event of [
+        { id: 'evt_live', type: 'session.next.text.delta', data: { sessionID: 'ses_one', assistantMessageID: 'msg_one', textID: 'txt_one', delta: 'Hello' } },
+        { id: 'evt_other', type: 'session.next.text.delta', data: { sessionID: 'ses_other', delta: 'private' } },
+        { id: 'evt_secret', type: 'provider.updated', data: { sessionID: 'ses_one', secret: 'hidden' } },
+      ]) res.write(`data: ${JSON.stringify(event)}\n\n`)
       return
     }
     if (req.url.includes('/event')) {
@@ -161,4 +172,44 @@ test('model metadata is projected without provider configuration or secrets', as
   const response = await fetch(c.origin + '/api/model', { headers: { authorization: `Bearer ${token}` } })
   assert.deepEqual(await response.json(), { data: [{ id: 'model_one', providerID: 'provider_one', name: 'Configured model', enabled: true }] })
   assert.equal((await fetch(c.origin + '/api/event', { headers: { authorization: `Bearer ${token}` } })).status, 403)
+})
+
+test('working changes derive their directory from the authenticated session, never a caller path', async t => {
+  const c = await setup(t)
+  const { token } = await c.pair()
+  const headers = { authorization: `Bearer ${token}` }
+  const result = await fetch(c.origin + '/mobile/v1/session/ses_changes/changes', { headers })
+  assert.equal(result.status, 200)
+  assert.deepEqual((await result.json()).data.map(v => v.file), ['address.ts'])
+  assert.equal(c.seen[1].url, '/vcs/diff?directory=%2Fwork%2Fstorefront&mode=git&context=3')
+  assert.equal((await fetch(c.origin + '/mobile/v1/session/ses_changes/changes?directory=/etc', { headers })).status, 403)
+})
+
+test('revoking a phone while it uploads a prompt prevents later upstream execution', async t => {
+  const c = await setup(t)
+  const { token, device } = await c.pair()
+  const uploading = request(c.origin + '/api/session/ses_demo/prompt', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' } })
+  const settled = new Promise(resolve => { uploading.on('error', () => resolve()); uploading.on('response', response => { response.resume(); response.on('end', resolve) }) })
+  uploading.write('{')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  await c.gateway.revoke(device.id)
+  uploading.end('"id":"msg_one","prompt":{"text":"do it"}}')
+  await settled
+  assert.equal(c.seen.length, 0)
+})
+
+test('mobile live endpoint projects native events and closes on device revocation', async t => {
+  const c = await setup(t)
+  const paired = await c.pair()
+  const response = await fetch(c.origin + '/mobile/v1/session/ses_one/live', { headers: { authorization: `Bearer ${paired.token}` } })
+  assert.equal(response.status, 200)
+  const reader = response.body.getReader()
+  let result = ''
+  while (!result.includes('evt_live')) result += Buffer.from((await reader.read()).value).toString()
+  assert.ok(result.includes('Hello'))
+  assert.ok(!result.includes('private'))
+  assert.ok(!result.includes('hidden'))
+  assert.equal(c.seen[0].url, '/api/event')
+  await c.gateway.revoke(paired.device.id)
+  await assert.rejects(async () => { while (!(await reader.read()).done) {} })
 })

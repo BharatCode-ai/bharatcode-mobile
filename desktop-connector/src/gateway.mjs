@@ -1,6 +1,9 @@
 import { createServer, request as httpRequest } from 'node:http'
 import { hostname, platform } from 'node:os'
 import { randomInt } from 'node:crypto'
+import { once } from 'node:events'
+import { projectEvents } from './live.mjs'
+import { projectFile } from './files.mjs'
 import { openDevices, secret, verifier, matches } from './devices.mjs'
 import { allowed, sidecarOrigin, tunnelOrigin } from './policy.mjs'
 
@@ -78,20 +81,74 @@ export async function createGateway(options) {
       const device = bearer && registry.authenticate(bearer)
       if (!device) throw status(401, 'Device authorization required')
       if (req.method === 'GET' && req.url === '/mobile/v1/health') return reply(res, 200, {
-        protocol: 1, desktop: metadata(), capabilities: { sessions: true, prompts: true, replay: true, permissions: true, questions: true, models: true, files: false, terminal: false },
+        protocol: 1, desktop: metadata(), capabilities: { sessions: true, prompts: true, replay: true, permissions: true, questions: true, models: true, live: true, changes: true, files: true, terminal: false },
       })
       if (req.method === 'DELETE' && req.url === '/mobile/v1/device') {
         await revoke(device.id)
         return reply(res, 200, { revoked: true })
       }
+      const cancellation = new AbortController()
+      const abortIncoming = () => { cancellation.abort(); req.destroy(); res.destroy() }
+      if (!active.has(device.id)) active.set(device.id, new Set())
+      active.get(device.id).add(abortIncoming)
+      res.once('close', () => { cancellation.abort(); active.get(device.id)?.delete(abortIncoming); if (!active.get(device.id)?.size) active.delete(device.id) })
+      const live = /^\/mobile\/v1\/session\/([A-Za-z0-9_-]+)\/live$/.exec(req.url)
+      if (req.method === 'GET' && live) {
+        const response = await fetch(upstream + '/api/event', {
+          headers: { authorization: 'Basic ' + Buffer.from(`${options.username ?? 'opencode'}:${options.password}`).toString('base64'), accept: 'text/event-stream' },
+          redirect: 'error', signal: cancellation.signal,
+        })
+        if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')) {
+          await response.body?.cancel(); throw status(502, 'Live events unavailable')
+        }
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
+        res.write(': connected\n\n')
+        const heartbeat = setInterval(() => { if (!res.destroyed) res.write(': heartbeat\n\n') }, 10_000)
+        try {
+          for await (const event of projectEvents(response.body, live[1])) {
+            if (!registry.authenticate(bearer)) break
+            if (!res.write(`data: ${JSON.stringify(event)}\n\n`)) await once(res, 'drain', { signal: cancellation.signal })
+          }
+        } finally { clearInterval(heartbeat); await response.body?.cancel().catch(() => {}); res.end() }
+        return
+      }
+      const fileURL = new URL(req.url, 'http://localhost')
+      const files = /^\/mobile\/v1\/session\/([A-Za-z0-9_-]+)\/files$/.exec(fileURL.pathname)
+      if (req.method === 'GET' && files) {
+        if ([...fileURL.searchParams.keys()].some(key => key !== 'path') || fileURL.searchParams.getAll('path').length > 1) throw status(400, 'Invalid file query')
+        const session = await upstreamJSON(`/api/session/${files[1]}`, cancellation.signal)
+        const directory = session.data?.location?.directory
+        if (typeof directory !== 'string') throw status(502, 'Session location unavailable')
+        const data = await projectFile(directory, fileURL.searchParams.get('path') ?? '')
+        if (!registry.authenticate(bearer)) throw status(401, 'Device authorization revoked')
+        return reply(res, 200, { data })
+      }
+      const changes = /^\/mobile\/v1\/session\/([A-Za-z0-9_-]+)\/changes$/.exec(req.url)
+      if (req.method === 'GET' && changes) {
+        const session = await upstreamJSON(`/api/session/${changes[1]}`, cancellation.signal)
+        const directory = session.data?.location?.directory
+        if (typeof directory !== 'string') throw status(502, 'Session location unavailable')
+        const query = new URLSearchParams({ directory, mode: 'git', context: '3' })
+        const data = await upstreamJSON('/vcs/diff?' + query, cancellation.signal)
+        if (!registry.authenticate(bearer)) throw status(401, 'Device authorization revoked')
+        return reply(res, 200, { data: Array.isArray(data) ? data : [] })
+      }
       if (!allowed(req.method, req.url)) throw status(403, 'Route is not available to mobile devices')
       const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await rawBody(req) : undefined
+      if (!registry.authenticate(bearer)) throw status(401, 'Device authorization revoked')
       if (body && !/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw status(415, 'JSON required')
       forward(req, res, device.id, body)
     } catch (error) {
       if (!res.headersSent) reply(res, error.status ?? 500, { error: error.status ? error.message : 'Connection request failed' })
       else res.destroy()
     }
+  }
+  async function upstreamJSON(path, signal) {
+    const response = await fetch(upstream + path, { headers: { authorization: 'Basic ' + Buffer.from(`${options.username ?? 'opencode'}:${options.password}`).toString('base64') }, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]) })
+    if (!response.ok) { await response.body?.cancel(); throw status(response.status, 'Computer could not load project changes') }
+    const chunks = []; let size = 0
+    for await (const chunk of response.body) { size += chunk.length; if (size > 16_777_216) throw status(413, 'Project changes are too large'); chunks.push(chunk) }
+    return JSON.parse(Buffer.concat(chunks).toString())
   }
   function forward(req, res, deviceID, body) {
     const target = new URL(req.url, upstream)
@@ -154,6 +211,7 @@ export async function createGateway(options) {
 
 function status(code, message) { return Object.assign(new Error(message), { status: code }) }
 function reply(res, code, data) {
+  if (res.destroyed || res.headersSent) return
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
   res.end(JSON.stringify(data))
 }

@@ -11,7 +11,7 @@ import 'models/models.dart';
 class AppController extends ChangeNotifier {
   final DeviceStore store;
   bool previewMode = false, busy = false, online = false, sending = false;
-  String? error, confirmation, selectedID, messageCursor;
+  String? error, confirmation, selectedID, messageCursor, sessionCursor;
   String search = '', projectFilter = 'All projects', resolution = '';
   String agentName = 'Build', modelName = 'Desktop model';
   int tab = 0, _generation = 0, _sequence = 0;
@@ -25,11 +25,25 @@ class AppController extends ChangeNotifier {
   ApiClient? _api, _pairingApi;
   Timer? _pairTimer, _refreshTimer, _reconnectTimer;
   StreamSubscription<Map<String, dynamic>>? _subscription;
+  StreamSubscription<Map<String, dynamic>>? _liveSubscription;
+  Timer? _activityTimer, _searchTimer;
+  int _seenSequence = 0;
+  int? _refreshingGeneration;
+  bool _refreshAgain = false, loadingSessions = false, _historyLoaded = false;
+  final List<Map<String, dynamic>> _rawMessages = [];
+  final Map<String, Map<String, String>> _liveTexts = {};
+  final Set<String> _liveEventIDs = {};
   int _pairGeneration = 0;
   bool _disposed = false;
 
-  AppController({this.store = const DeviceStore()});
-  AppController.preview({this.store = const DeviceStore()}) {
+  final ApiClient Function(Uri, String) _apiFactory;
+  AppController({
+    this.store = const DeviceStore(),
+    ApiClient Function(Uri, String)? apiFactory,
+  }) : _apiFactory =
+           apiFactory ?? ((origin, token) => ApiClient(origin, token));
+  AppController.preview({this.store = const DeviceStore()})
+    : _apiFactory = ((origin, token) => ApiClient(origin, token)) {
     enterPreview();
   }
   SessionSummary? get selected =>
@@ -52,6 +66,10 @@ class AppController extends ChangeNotifier {
   void setSearch(String value) {
     search = value;
     changed();
+    if (!previewMode) {
+      _searchTimer?.cancel();
+      _searchTimer = Timer(const Duration(milliseconds: 300), refreshSessions);
+    }
   }
 
   void setProject(String value) {
@@ -93,7 +111,10 @@ class AppController extends ChangeNotifier {
   }
 
   void enterPreview() {
+    ++_generation;
     _subscription?.cancel();
+    _liveSubscription?.cancel();
+    _activityTimer?.cancel();
     _api?.close();
     _api = null;
     previewMode = true;
@@ -155,8 +176,14 @@ class AppController extends ChangeNotifier {
     resolution = '';
     messageCursor = null;
     _sequence = 0;
+    _seenSequence = 0;
+    _historyLoaded = false;
+    _rawMessages.clear();
+    _liveTexts.clear();
+    _liveEventIDs.clear();
     final generation = ++_generation;
     await _subscription?.cancel();
+    await _liveSubscription?.cancel();
     _refreshTimer?.cancel();
     _reconnectTimer?.cancel();
     if (previewMode) {
@@ -196,14 +223,24 @@ class AppController extends ChangeNotifier {
         final pending = await store.pending(device!.id, session.id);
         if (generation != _generation) return;
         if (pending != null) _pendingPrompts[_draftKey] = pending;
+        final cached = await store.cache(device!.id, session.id);
+        if (generation != _generation) return;
+        if (cached != null) {
+          _sequence = cached['sequence'] as int? ?? 0;
+          _seenSequence = _sequence;
+          _rawMessages.addAll(
+            (cached['data'] as List).map((e) => Map<String, dynamic>.from(e)),
+          );
+          _renderMessages();
+        }
       }
+      _subscribe(generation);
       await _loadMessages(generation);
       if (generation == _generation) {
         await _loadRequests();
-        _subscribe(generation);
       }
     } catch (e) {
-      _failed(e);
+      if (generation == _generation) _failed(e);
     } finally {
       if (generation == _generation) {
         busy = false;
@@ -216,6 +253,8 @@ class AppController extends ChangeNotifier {
     selectedID = null;
     ++_generation;
     _subscription?.cancel();
+    _liveSubscription?.cancel();
+    _refreshTimer?.cancel();
     _reconnectTimer?.cancel();
     changed();
   }
@@ -229,19 +268,96 @@ class AppController extends ChangeNotifier {
     );
     if (generation != _generation) return;
     final list = (page['data'] as List)
-        .map((e) => ChatMessage.fromJson(Map<String, dynamic>.from(e)))
+        .map((e) => Map<String, dynamic>.from(e))
         .toList()
         .reversed
         .toList();
+    final byID = {for (final item in _rawMessages) item['id']: item};
     if (older) {
-      final ids = messages.map((m) => m.id).toSet();
-      messages = [...list.where((m) => !ids.contains(m.id)), ...messages];
+      _rawMessages.insertAll(0, list.where((m) => !byID.containsKey(m['id'])));
+      messageCursor = (page['cursor'] as Map?)?['next'] as String?;
     } else {
-      messages = list;
+      for (final item in list) {
+        final index = _rawMessages.indexWhere((m) => m['id'] == item['id']);
+        if (index < 0) {
+          _rawMessages.add(item);
+        } else {
+          _rawMessages[index] = item;
+        }
+      }
+      if (!_historyLoaded) {
+        messageCursor = (page['cursor'] as Map?)?['next'] as String?;
+        _historyLoaded = true;
+      }
+      final desktopID = device?.id;
+      if (desktopID != null) {
+        await store.saveCache(desktopID, session, {
+          'data': list,
+          'sequence': _sequence,
+        });
+        if (generation != _generation) return;
+      }
     }
-    messageCursor = (page['cursor'] as Map?)?['next'] as String?;
+    _renderMessages();
     online = true;
     changed();
+  }
+
+  void _renderMessages() {
+    messages = _rawMessages.map((raw) {
+      final overlays = _liveTexts[raw['id']];
+      if (overlays == null) return ChatMessage.fromJson(raw);
+      final content = (raw['content'] as List? ?? [])
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      for (final entry in overlays.entries) {
+        final index = content.indexWhere(
+          (part) => part['type'] == 'text' && part['id'] == entry.key,
+        );
+        final part = {'id': entry.key, 'type': 'text', 'text': entry.value};
+        if (index < 0) {
+          content.add(part);
+        } else {
+          content[index] = part;
+        }
+      }
+      return ChatMessage.fromJson({...raw, 'content': content});
+    }).toList();
+    changed();
+  }
+
+  void _applyLive(Map<String, dynamic> event, int generation) {
+    if (generation != _generation) return;
+    final id = event['id'] as String?;
+    if (id != null && !_liveEventIDs.add(id)) return;
+    if (_liveEventIDs.length > 2000) _liveEventIDs.remove(_liveEventIDs.first);
+    final type = event['type'] as String? ?? '';
+    final data = event['data'] as Map? ?? {};
+    if (data['sessionID'] != selectedID) return;
+    if (type.startsWith('session.next.text.')) {
+      final messageID = data['assistantMessageID'] as String?,
+          textID = data['textID'] as String?;
+      if (messageID != null && textID != null) {
+        final parts = _liveTexts.putIfAbsent(messageID, () => {});
+        if (!_rawMessages.any((m) => m['id'] == messageID)) {
+          _rawMessages.add({
+            'id': messageID,
+            'type': 'assistant',
+            'content': [],
+          });
+        }
+        if (type.endsWith('.started')) parts.putIfAbsent(textID, () => '');
+        if (type.endsWith('.delta')) {
+          parts[textID] =
+              (parts[textID] ?? '') + (data['delta'] as String? ?? '');
+        }
+        if (type.endsWith('.ended')) {
+          parts[textID] = data['text'] as String? ?? '';
+        }
+        _renderMessages();
+      }
+    }
+    if (!type.endsWith('.delta')) _queueRefresh(generation);
   }
 
   Future<void> loadOlder() async {
@@ -256,13 +372,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> _loadRequests() async {
     if (_api == null || selectedID == null) return;
-    final session = selectedID!;
-    final value = await _api!.request(
-      'GET',
-      '/api/session/$session/permission',
-    );
-    if (selectedID != session) return;
-    pendingRequests = (value['data'] as List? ?? []).map((e) {
+    final session = selectedID!, generation = _generation;
+    final api = _api!;
+    final value = await api.request('GET', '/api/session/$session/permission');
+    if (generation != _generation || selectedID != session) return;
+    final requests = (value['data'] as List? ?? []).map((e) {
       final j = Map<String, dynamic>.from(e);
       return AgentRequest(
         id: j['id'] as String,
@@ -273,12 +387,12 @@ class AppController extends ChangeNotifier {
         raw: j,
       );
     }).toList();
-    final questions = await _api!.request(
+    final questions = await api.request(
       'GET',
       '/api/session/$session/question',
     );
-    if (selectedID != session) return;
-    pendingRequests.addAll(
+    if (generation != _generation || selectedID != session) return;
+    requests.addAll(
       (questions['data'] as List? ?? []).map((e) {
         final j = Map<String, dynamic>.from(e);
         return AgentRequest(
@@ -290,6 +404,10 @@ class AppController extends ChangeNotifier {
         );
       }),
     );
+    pendingRequests = [
+      ...pendingRequests.where((r) => r.sessionID != session),
+      ...requests,
+    ];
     changed();
   }
 
@@ -370,28 +488,22 @@ class AppController extends ChangeNotifier {
   }
 
   void _subscribe(int generation) {
-    if (_api == null || selectedID == null) return;
-    _subscription = _api!
-        .events(selectedID!, after: _sequence)
+    final api = _api, session = selectedID;
+    if (api == null || session == null || generation != _generation) return;
+    _subscription?.cancel();
+    _liveSubscription?.cancel();
+    _subscription = api
+        .events(session, after: _sequence)
         .listen(
           (event) {
             if (generation != _generation) return;
-            // Durable stream envelopes use aggregateID/seq; transient events may omit it.
             final sequence = event['seq'] ?? (event['durable'] as Map?)?['seq'];
             if (sequence is int && sequence <= _sequence) return;
+            if (sequence is int && sequence > _seenSequence) {
+              _seenSequence = sequence;
+            }
             online = true;
-            _refreshTimer?.cancel();
-            _refreshTimer = Timer(const Duration(milliseconds: 180), () async {
-              try {
-                await _loadMessages(generation);
-                await _loadRequests();
-                if (generation == _generation && sequence is int) {
-                  _sequence = sequence;
-                }
-              } catch (e) {
-                _failed(e);
-              }
-            });
+            _queueRefresh(generation);
           },
           onError: (Object error) => _lostStream(generation, error),
           onDone: () => _lostStream(
@@ -399,6 +511,44 @@ class AppController extends ChangeNotifier {
             const ApiException(0, 'Connection interrupted.'),
           ),
         );
+    _liveSubscription = api
+        .liveEvents(session)
+        .listen(
+          (event) => _applyLive(event, generation),
+          onError: (Object error) => _lostStream(generation, error),
+          onDone: () => _lostStream(
+            generation,
+            const ApiException(0, 'Live connection interrupted.'),
+          ),
+        );
+  }
+
+  void _queueRefresh(int generation) {
+    if (generation != _generation) return;
+    _refreshAgain = true;
+    if (_refreshTimer?.isActive == true ||
+        _refreshingGeneration == generation) {
+      return;
+    }
+    _refreshTimer = Timer(const Duration(milliseconds: 180), () async {
+      if (generation != _generation) return;
+      _refreshingGeneration = generation;
+      _refreshAgain = false;
+      final through = _seenSequence;
+      try {
+        await _loadMessages(generation);
+        if (generation != _generation) return;
+        await _loadRequests();
+        if (generation == _generation) _sequence = through;
+      } catch (e) {
+        if (generation == _generation) _failed(e);
+      } finally {
+        if (_refreshingGeneration == generation) _refreshingGeneration = null;
+        if (_refreshAgain && generation == _generation) {
+          _queueRefresh(generation);
+        }
+      }
+    });
   }
 
   void _lostStream(int generation, Object e) {
@@ -425,6 +575,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     final text = draft.trim(), session = selectedID!, key = _draftKey;
+    final api = _api, deviceID = device?.id, generation = _generation;
     sending = true;
     error = null;
     changed();
@@ -460,21 +611,51 @@ class AppController extends ChangeNotifier {
       return;
     }
     try {
-      await store.savePending(device!.id, session, pending);
-      await _api!.prompt(session, pending['id'] as String, text);
+      if (api == null || deviceID == null) return;
+      await store.savePending(deviceID, session, pending);
+      if (generation != _generation || device?.id != deviceID) return;
+      await api.prompt(session, pending['id'] as String, text);
+      // Admission and clearing the submitted draft are one persisted transition.
+      // A failed write retains the original message ID for a safe retry.
+      await store.admit(deviceID, session, pending['id'] as String, text);
       _pendingPrompts.remove(key);
-      await store.savePending(device!.id, session, null);
       if (_drafts[key]?.trim() == text) _drafts[key] = '';
-      if (device != null) {
-        await store.saveDraft(device!.id, session, _drafts[key] ?? '');
-      }
-      await _loadMessages(_generation);
+      if (generation == _generation) await _loadMessages(generation);
     } catch (_) {
-      error = 'Delivery is unconfirmed. Retry this message to check admission; it will use the same message ID.';
+      if (generation == _generation) {
+        error = 'Delivery is unconfirmed. Retry this message to check admission; it will use the same message ID.';
+      }
     } finally {
       sending = false;
       changed();
     }
+  }
+
+  Future<Map<String, dynamic>> loadFile(String path) async {
+    final api = _api, session = selectedID;
+    if (api == null || session == null) {
+      throw StateError('Select a conversation');
+    }
+    final result = await api.request(
+      'GET',
+      '/mobile/v1/session/$session/files',
+      query: {'path': path},
+    );
+    return Map<String, dynamic>.from(result['data']);
+  }
+
+  Future<List<Map<String, dynamic>>> loadChanges() async {
+    final api = _api, session = selectedID;
+    if (api == null || session == null) {
+      throw StateError('Select a conversation');
+    }
+    final result = await api.request(
+      'GET',
+      '/mobile/v1/session/$session/changes',
+    );
+    return (result['data'] as List)
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
   }
 
   Future<void> stop() async {
@@ -521,8 +702,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectDevice(DesktopDevice next) async {
-    ++_generation;
+    final generation = ++_generation;
     await _subscription?.cancel();
+    await _liveSubscription?.cancel();
+    _activityTimer?.cancel();
+    _refreshTimer?.cancel();
+    _reconnectTimer?.cancel();
     _api?.close();
     previewMode = false;
     device = next;
@@ -530,9 +715,12 @@ class AppController extends ChangeNotifier {
     sessions = [];
     busy = true;
     changed();
-    _api = ApiClient(Uri.parse(next.origin), next.token);
+    if (generation != _generation) return;
+    final api = _apiFactory(Uri.parse(next.origin), next.token);
+    _api = api;
     try {
-      final health = await _api!.request('GET', '/mobile/v1/health');
+      final health = await api.request('GET', '/mobile/v1/health');
+      if (generation != _generation) return;
       if (health['protocol'] != 1 ||
           (health['desktop'] as Map)['id'] != next.id) {
         throw const ApiException(
@@ -541,23 +729,120 @@ class AppController extends ChangeNotifier {
         );
       }
       await refreshSessions();
+      if (generation != _generation) return;
+      _activityTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => unawaited(_refreshActivity()),
+      );
     } catch (e) {
-      _failed(e);
+      if (generation == _generation) _failed(e);
     } finally {
-      busy = false;
-      changed();
+      if (generation == _generation) {
+        busy = false;
+        changed();
+      }
     }
   }
 
-  Future<void> refreshSessions() async {
-    if (previewMode || _api == null) return;
+  Future<void> refreshSessions({bool more = false}) async {
+    final api = _api, desktopID = device?.id, query = search;
+    if (previewMode || api == null || loadingSessions) return;
+    loadingSessions = true;
+    changed();
     try {
-      sessions = await _api!.sessions();
+      final page = await api.sessionPage(
+        cursor: more ? sessionCursor : null,
+        search: query,
+      );
+      if (!identical(api, _api) || device?.id != desktopID || search != query) {
+        return;
+      }
+      final list = (page['data'] as List)
+          .map((e) => SessionSummary.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      final ids = sessions.map((s) => s.id).toSet();
+      sessions = more
+          ? [...sessions, ...list.where((s) => !ids.contains(s.id))]
+          : list;
+      sessionCursor = (page['cursor'] as Map?)?['next'] as String?;
+      await _refreshActivity();
+      if (device?.id != desktopID) return;
       online = true;
       error = null;
-      changed();
     } catch (e) {
-      _failed(e);
+      if (device?.id == desktopID) _failed(e);
+    } finally {
+      loadingSessions = false;
+      changed();
+      if (search != query && device?.id == desktopID) {
+        unawaited(refreshSessions());
+      }
+    }
+  }
+
+  Future<void> _refreshActivity() async {
+    final api = _api, desktopID = device?.id;
+    if (api == null || previewMode) return;
+    try {
+      final activeResult = await api.request('GET', '/api/session/active');
+      final locations = sessions.map((s) => s.directory).toSet();
+      final requests = <AgentRequest>[];
+      for (final directory in locations) {
+        final values = await Future.wait([
+          api.request(
+            'GET',
+            '/api/permission/request',
+            query: {if (directory.isNotEmpty) 'location[directory]': directory},
+          ),
+          api.request(
+            'GET',
+            '/api/question/request',
+            query: {if (directory.isNotEmpty) 'location[directory]': directory},
+          ),
+        ]);
+        if (!identical(api, _api)) return;
+        for (var i = 0; i < values.length; i++) {
+          for (final raw in values[i]['data'] as List? ?? []) {
+            final j = Map<String, dynamic>.from(raw);
+            if (requests.any((r) => r.id == j['id'])) continue;
+            requests.add(
+              AgentRequest(
+                id: j['id'],
+                sessionID: j['sessionID'],
+                title: i == 1
+                    ? 'BharatCode has a question'
+                    : 'Allow ${j['action']}?',
+                command: (j['resources'] as List? ?? []).join('\n'),
+                directory: directory,
+                question: i == 1,
+                raw: j,
+              ),
+            );
+          }
+        }
+      }
+      if (!identical(api, _api) || device?.id != desktopID) return;
+      pendingRequests = requests;
+      final active = activeResult['data'] as Map? ?? {};
+      sessions = sessions
+          .map(
+            (s) => SessionSummary(
+              id: s.id,
+              title: s.title,
+              project: s.project,
+              directory: s.directory,
+              updated: s.updated,
+              status: requests.any((r) => r.sessionID == s.id)
+                  ? 'attention'
+                  : active.containsKey(s.id)
+                  ? 'running'
+                  : 'idle',
+            ),
+          )
+          .toList();
+      changed();
+    } catch (_) {
+      /* A chat connection has its own reconnection state. Retry discovery on the next foreground tick. */
     }
   }
 
@@ -723,8 +1008,10 @@ class AppController extends ChangeNotifier {
   Future<void> suspend() async {
     ++_generation;
     await _subscription?.cancel();
+    await _liveSubscription?.cancel();
     _reconnectTimer?.cancel();
     _refreshTimer?.cancel();
+    _activityTimer?.cancel();
     if (!previewMode) {
       online = false;
       changed();
@@ -733,6 +1020,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> resume() async {
     if (previewMode || _api == null) return;
+    _activityTimer?.cancel();
+    _activityTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => unawaited(_refreshActivity()),
+    );
     if (selected != null) {
       await selectSession(selected!);
     } else {
@@ -756,7 +1048,10 @@ class AppController extends ChangeNotifier {
     ++_generation;
     cancelPairing();
     _subscription?.cancel();
+    _liveSubscription?.cancel();
     _refreshTimer?.cancel();
+    _activityTimer?.cancel();
+    _searchTimer?.cancel();
     _reconnectTimer?.cancel();
     _api?.close();
     super.dispose();

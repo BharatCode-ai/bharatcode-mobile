@@ -224,10 +224,26 @@ class SessionsScreen extends StatelessWidget {
                 onRefresh: controller.refreshSessions,
                 child: ListView.separated(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                  itemCount: controller.visibleSessions.length,
+                  itemCount:
+                      controller.visibleSessions.length +
+                      (controller.sessionCursor == null ? 0 : 1),
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) =>
-                      _sessionRow(controller.visibleSessions[index]),
+                      index == controller.visibleSessions.length
+                      ? Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: OutlinedButton(
+                            onPressed: controller.loadingSessions
+                                ? null
+                                : () => controller.refreshSessions(more: true),
+                            child: Text(
+                              controller.loadingSessions
+                                  ? 'Loading…'
+                                  : 'Load more conversations',
+                            ),
+                          ),
+                        )
+                      : _sessionRow(controller.visibleSessions[index]),
                 ),
               ),
       ),
@@ -559,23 +575,13 @@ class SessionsScreen extends StatelessWidget {
             const SizedBox(height: 22),
             const Text('Appearance', style: TextStyle(color: BC.muted)),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: ThemeMode.values
-                  .map(
-                    (mode) => OutlinedButton(
-                      onPressed: () {
-                        onTheme(mode);
-                        Navigator.pop(context);
-                      },
-                      child: Text(switch (mode) {
-                        ThemeMode.system => 'System',
-                        ThemeMode.light => 'Light',
-                        ThemeMode.dark => 'Dark',
-                      }),
-                    ),
-                  )
-                  .toList(),
+            const ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.dark_mode_outlined),
+              title: Text('Dark'),
+              subtitle: Text(
+                'Warm surfaces, quiet contrast, and BharatCode orange.',
+              ),
             ),
             const SizedBox(height: 20),
             const Divider(),

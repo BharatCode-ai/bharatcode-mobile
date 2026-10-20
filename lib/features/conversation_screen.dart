@@ -6,6 +6,7 @@ import '../controller.dart';
 import '../design/theme.dart';
 import '../models/models.dart';
 import 'changes_screen.dart';
+import 'files_screen.dart';
 import 'question_sheet.dart';
 
 class ConversationScreen extends StatefulWidget {
@@ -100,6 +101,17 @@ class _ConversationState extends State<ConversationScreen> {
             ],
           ),
           actions: [
+            if (!c.previewMode)
+              IconButton(
+                tooltip: 'Browse project files',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FilesScreen(load: c.loadFile),
+                  ),
+                ),
+                icon: const Icon(Icons.folder_open_outlined, size: 21),
+              ),
             IconButton(
               tooltip: 'Conversation information',
               onPressed: () => _information(context),
@@ -232,6 +244,26 @@ class _ConversationState extends State<ConversationScreen> {
                                 child: Text(
                                   c.resolution,
                                   style: const TextStyle(color: BC.green),
+                                ),
+                              ),
+                            if (!c.previewMode)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 20,
+                                ),
+                                child: OutlinedButton.icon(
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          ChangesScreen(load: c.loadChanges),
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.difference_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('View working changes'),
                                 ),
                               ),
                             if (c.previewMode && requests.isEmpty) ...[
@@ -583,34 +615,44 @@ class _ConversationState extends State<ConversationScreen> {
           ),
           Row(
             children: [
-              TextButton.icon(
-                onPressed: () => _model(context, kind: 'agent'),
-                icon: const Icon(
-                  Icons.auto_awesome_outlined,
-                  size: 14,
-                  color: BC.muted,
-                ),
-                label: Text(
-                  c.agentName,
-                  style: const TextStyle(color: BC.muted, fontSize: 11),
+              Flexible(
+                child: TextButton.icon(
+                  onPressed: () => _model(context, kind: 'agent'),
+                  icon: const Icon(
+                    Icons.auto_awesome_outlined,
+                    size: 14,
+                    color: BC.muted,
+                  ),
+                  label: Text(
+                    c.agentName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: BC.muted, fontSize: 11),
+                  ),
                 ),
               ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => _model(context),
-                child: Row(
-                  children: [
-                    Text(
-                      c.modelName,
-                      style: const TextStyle(fontSize: 11, color: BC.muted),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.keyboard_arrow_down,
-                      size: 15,
-                      color: BC.muted,
-                    ),
-                  ],
+              const SizedBox(width: 4),
+              Expanded(
+                child: TextButton(
+                  onPressed: () => _model(context),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          c.modelName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, color: BC.muted),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(
+                        Icons.keyboard_arrow_down,
+                        size: 15,
+                        color: BC.muted,
+                      ),
+                    ],
+                  ),
                 ),
               ),
               IconButton(

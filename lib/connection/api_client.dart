@@ -87,23 +87,23 @@ class ApiClient {
     return _client.send(request);
   }
 
+  Future<Map<String, dynamic>> sessionPage({String? cursor, String? search}) =>
+      request(
+        'GET',
+        '/api/session',
+        query: {
+          'limit': '40',
+          'cursor': ?cursor,
+          if (search?.isNotEmpty ?? false) 'search': search!,
+        },
+      );
   Future<List<SessionSummary>> sessions({
     String? cursor,
     String? search,
-  }) async {
-    final value = await request(
-      'GET',
-      '/api/session',
-      query: {
-        'limit': '40',
-        'cursor': ?cursor,
-        if (search?.isNotEmpty ?? false) 'search': search!,
-      },
-    );
-    return (value['data'] as List)
-        .map((e) => SessionSummary.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
-  }
+  }) async =>
+      ((await sessionPage(cursor: cursor, search: search))['data'] as List)
+          .map((e) => SessionSummary.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
 
   Future<Map<String, dynamic>> messagePage(String session, {String? cursor}) =>
       request(
@@ -144,6 +144,21 @@ class ApiClient {
       throw ApiException(
         response.statusCode,
         'Could not reconnect to this conversation.',
+      );
+    }
+    yield* decodeEvents(response.stream.timeout(const Duration(seconds: 45)));
+  }
+
+  Stream<Map<String, dynamic>> liveEvents(String session) async* {
+    final response = await _send(
+      'GET',
+      '/mobile/v1/session/${Uri.encodeComponent(session)}/live',
+    ).timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      await response.stream.drain();
+      throw ApiException(
+        response.statusCode,
+        'Live conversation updates are unavailable.',
       );
     }
     yield* decodeEvents(response.stream.timeout(const Duration(seconds: 45)));

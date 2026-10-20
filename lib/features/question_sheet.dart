@@ -26,6 +26,7 @@ class _QuestionState extends State<QuestionSheet> {
     (_) => TextEditingController(),
   );
   bool saving = false;
+  String? error;
   @override
   void dispose() {
     for (final input in inputs) {
@@ -104,6 +105,11 @@ class _QuestionState extends State<QuestionSheet> {
                 ],
               );
             }),
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(error!, style: const TextStyle(color: BC.orange)),
+              ),
             FilledButton(
               onPressed:
                   saving ||
@@ -116,13 +122,18 @@ class _QuestionState extends State<QuestionSheet> {
                       ).contains(false)
                   ? null
                   : () async {
-                      setState(() => saving = true);
+                      setState(() {
+                        saving = true;
+                        error = null;
+                      });
                       final ok = await widget.controller.answer(
                         widget.request,
                         List.generate(
                           questions.length,
                           (i) => [
-                            ...selected[i],
+                            if (questions[i]['multiple'] == true ||
+                                inputs[i].text.trim().isEmpty)
+                              ...selected[i],
                             if (inputs[i].text.trim().isNotEmpty)
                               inputs[i].text.trim(),
                           ],
@@ -132,7 +143,12 @@ class _QuestionState extends State<QuestionSheet> {
                       if (ok) {
                         Navigator.pop(context);
                       } else {
-                        setState(() => saving = false);
+                        setState(() {
+                          saving = false;
+                          error =
+                              widget.controller.error ??
+                              'Answer could not be sent. Try again.';
+                        });
                       }
                     },
               child: Text(saving ? 'Sending…' : 'Send answer'),
