@@ -17,3 +17,19 @@ node_modules/
 *.iml
 *.log
 __pycache__/
+
+# Local development notes, verification captures, and assistant configuration
+.local/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.codex/
+.claude/
+.cursor/
+
+# Mobile distribution artifacts and signing material
+*.apk
+*.aab
+*.ipa
+*.p12
+*.mobileprovision

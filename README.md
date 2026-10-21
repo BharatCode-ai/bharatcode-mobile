@@ -1,25 +1,44 @@
 # BharatCode Mobile
 
-A Flutter companion for BharatCode Desktop on iOS and Android. Pair with a computer, continue its conversations, review changes, and respond to agent requests through OpenTunnel.
+Continue your BharatCode Desktop conversations from iOS and Android. Pair with your computer through OpenTunnel, review changes, and respond to agent requests from your phone. Your computer keeps running the work.
+
+This repository contains the Flutter app, its Desktop connector, and the Desktop integration. The workspace also supports broader BharatCode development; the folder name reflects its mobile origins.
 
 ## Current state
 
-The first development build implements QR pairing with Desktop approval, saved computers, searchable and paginated chats, streamed replies, prompt retries, agent/model selection, stop, permission and question replies, working-tree diffs, and read-only project files. Drafts and a recent confirmed message window survive reopening; the app reconciles with Desktop when it reconnects.
+The development build supports QR pairing with Desktop approval, saved computers, searchable chats with pagination, streamed replies, and prompt retries. You can choose an agent or model, stop a task, answer questions, approve or deny requests, inspect working-tree diffs, and read project files.
 
-The interface follows the selected warm dark design. Sample content is available only through **Explore a sample workspace** or an explicit preview flag.
+Drafts and recently confirmed messages survive reopening. When the app reconnects, it checks Desktop for the latest state.
 
-The connector uses the normal Desktop-owned server and its compatibility API for existing message history and execution. Use the integrated development Desktop build; the published beta alone does not include mobile access. Physical-phone, iOS, background notifications, and terminal qualification are separate from this development milestone.
+The interface uses a warm, dark theme. To try it with sample data, choose **Explore a sample workspace** or launch with the preview flag below.
+
+Use a Desktop build with the mobile integration described below. The published Desktop beta does not include mobile access. The connector uses Desktop’s existing server and compatibility API for message history and execution.
 
 - [Screen and interaction reference](docs/design/SCREEN-EXPERIENCES.md)
 - [Selected visual target](docs/design/assets/selected-conversation.png)
 
 Compatible server contracts are based on [BharatCode Desktop](https://github.com/BharatCode-ai/bharatcode-desktop), `dev` at `1e97842919d87a350b38ea5fcf55f952af072e2e`.
 
-Connections use the existing hosted OpenTunnel service. Pairing, conversation storage, and execution stay under the Desktop instance; this project does not introduce a BC-managed relay or a separate mobile account.
+Connections go through the hosted OpenTunnel service. Desktop owns pairing, conversation storage, and execution. There is no separate mobile account or BC-managed relay.
+
+## Verification status
+
+Source checks passed on 21 October 2026: Flutter analysis, **35 unit/widget tests**, and **31 connector tests**.
+
+On 20 October 2026, an Android API 35 emulator was tested through hosted OpenTunnel against the existing Desktop sidecar. The run covered pairing by pasted code with Desktop approval, conversations, streamed replies, request controls, files and diffs, Stop, draft persistence, device revocation, and reconnect.
+
+Physical Android devices, camera QR scanning, iOS, release signing, the release renderer, and Play Store/TestFlight delivery remain unverified. The tested Android artifact was a debug build. Background notifications and terminal support are outside this verified milestone.
 
 ## Development
 
-Requires Flutter 3.47 or later with Dart 3.13, and Node.js 22 or later for connector tests.
+Tested with Flutter **3.47.7** and Dart **3.13.5**. Connector tests require Node.js **22 or later**. Native development also requires the Android SDK or Xcode on macOS for iOS.
+
+Clone the repository first:
+
+```sh
+git clone https://github.com/BharatCode-ai/bharatcode-mobile.git
+cd bharatcode-mobile
+```
 
 ```sh
 flutter pub get
@@ -34,7 +53,7 @@ To inspect the interface with clearly labelled sample data:
 flutter run -d web-server --web-port 5177 --dart-define=BC_PREVIEW=true
 ```
 
-The browser target is a development preview. The companion is intended to connect from the native iOS/Android app; its gateway rejects browser-origin traffic.
+The browser target is for previewing the interface. Connect to Desktop from the native iOS/Android app; the gateway rejects browser-origin traffic.
 
 ```sh
 cd desktop-connector
@@ -50,7 +69,7 @@ The native integration test requires an already paired Android device and a Desk
 flutter test integration_test/paired_desktop_test.dart -d <device-id> --no-uninstall --dart-define=BC_E2E_CONTROLS=true
 ```
 
-Keep `--no-uninstall`: Flutter's default test cleanup removes the app and its saved pairing. After testing, install the normal application entry point again with an update that preserves app data; the integration runner is a separate test entry point. A successful run covers only the device and Desktop used for that run.
+Keep `--no-uninstall`, because Flutter’s default test cleanup removes the app and its saved pairing. After testing, reinstall the normal app with an update that preserves app data. The integration runner uses a separate entry point. A passing run covers only the device and Desktop used for that test.
 
 The other native test targets cover:
 
