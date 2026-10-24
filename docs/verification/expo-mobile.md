@@ -23,16 +23,16 @@ Fresh pairing is explicitly approved. Desktop chats remain server-owned. No auto
 
 | Surface | Controls/behavior | Automated source coverage | Native check |
 | --- | --- | --- | --- |
-| First launch/pairing | Scan/paste, permission recovery, matching code, approve/decline, cancel/expiry, fresh secure persistence | Payload/origin validation, Add Computer routing | Delegate: QR separate from paste, actual Desktop approval |
-| Chats | Search, cursor paging, project/device selectors, refresh, new chat | Context isolation, late-page rejection | Delegate: real server history/search/new chat |
-| Conversation | History, streamed text, tool expansion, selectable Markdown/code, copy/fullscreen, reading position/jump | SSE/projection/dedup/window tests | Delegate: incremental text, long response/keyboard/reading |
-| Composer | Multiline, clipboard context, Send, Stop, model/agent | Durable ID/admission/failures, Stop wire contract, per-chat labels | Delegate: real execution, selectors, clipboard |
-| Requests | Allow once/Deny, single/multiple/custom question answers, duplicate prevention | Decision payload, single-choice/custom interaction | Delegate: actual pending requests/server confirmation |
-| Files/changes | Breadcrumbs, directory/file switch, diff selection, copy, wrap, binary/large/error states | Existing connector confinement tests; typed client/context guards | Delegate: actual fixture files/diff |
-| Activity | Running/attention, refresh, open relevant session | Real discovery service and stale-context protection | Delegate: actual status/request transitions |
-| Devices/preferences | Restore/switch/add/remove, identity, offline revocation notice, Dark/about | Storage isolation/removal, auth rejection | Delegate: reopen, remove and old-token HTTP 401 |
-| Recovery | Offline edits, explicit retry, process reopen, suspend/resume, Desktop restart | Outbox + queue barriers, generations, bounded events | Delegate: real platform lifecycle/connectivity |
-| Sample | Labelled, isolated in-memory client, all sample navigation | Preview initialization/service behavior | Browser/native visual check, no real credentials |
+| First launch/pairing | Scan/paste, permission recovery, matching code, approve/decline, cancel/expiry, fresh secure persistence | Payload/origin validation, Add Computer routing | Paste/IPC approval passed; camera QR and visible Desktop approval click unverified |
+| Chats | Search, cursor paging, project/device selectors, refresh, new chat | Context isolation, late-page rejection | Real fixture history/search opened; full paging/project/new-chat matrix not separately recorded |
+| Conversation | History, streamed text, tool expansion, selectable Markdown/code, copy/fullscreen, reading position/jump | SSE/projection/dedup/window tests | Real reply and keyboard passed; incremental transport probe passed; full-app incremental/reading matrix incomplete |
+| Composer | Multiline, clipboard context, Send, Stop, model/agent | Durable ID/admission/failures, Stop wire contract, per-chat labels | Send/Stop passed; model/agent options loaded; selection mutation/context clipboard not separately confirmed |
+| Requests | Allow once/Deny, single/multiple/custom question answers, duplicate prevention | Decision payload, single-choice/custom interaction | Two real question answers confirmed; permission decision UI not separately exercised |
+| Files/changes | Breadcrumbs, directory/file switch, diff selection, copy, wrap, binary/large/error states | Existing connector confinement tests; typed client/context guards | README file/diff read, wrap and copy passed; full binary/large/error matrix incomplete |
+| Activity | Running/attention, refresh, open relevant session | Real discovery service and stale-context protection | Active question, Stop, completed answers and return to All quiet observed |
+| Devices/preferences | Restore/switch/add/remove, identity, offline revocation notice, Dark/about | Storage isolation/removal, auth rejection | Reopen/remove passed; revocation produced 401-specific native warning; multiple-computer switch not separately exercised |
+| Recovery | Offline edits, explicit retry, process reopen, suspend/resume, Desktop restart | Outbox + queue barriers, generations, bounded events | Draft process reopen and send after Wi-Fi toggle passed; uncertain send same-ID reconciliation passed; full outage matrix incomplete |
+| Sample | Labelled, isolated in-memory client, all sample navigation | Preview initialization/service behavior | Native sample launch and browser export passed; isolated sample storage covered in source |
 
 ## Review findings resolved in source
 
@@ -44,9 +44,27 @@ Owned exclusively by the designated `gpt-6-luna` / `max` delegate, including the
 
 Early native transport probe passed using the actual TypeScript API client with Expo Fetch on Android API 35: incremental fragmented Unicode SSE, AbortController reader release, and authenticated redirect rejection. The redirect target received zero requests. Native timeout checks also passed: header inactivity rejected at 20,020 ms, body inactivity at 21,001 ms, and SSE inactivity at 46,000 ms (native scheduling included). The probe used a separate package and synthetic credential; this does not establish the full app/Desktop flow.
 
-Full app Android debug packaging/install passed under the isolated `.nativeqa` ID, preserving the original Flutter installation/data. The native bundle launched sample Chats and the real-mode fresh Pair screen with SQLite/SecureStore initialization. Real fresh pairing through the existing MobileDev main-process connector and hosted OpenTunnel passed. Confirmation was compared in memory before programmatic approval through the existing Desktop IPC; the visible Desktop approval UI remains unverified. The first native send exposed shared cancellation between streaming and prompt requests. A source regression reproduced the prompt abort; separating stream cancellation fixed it. Native same-ID retry reconciled Desktop admission, cleared the local pending prompt/draft, and displayed the synthetic Desktop reply. The prompt was present exactly once. Android keyboard qualification exposed composer controls behind the IME; explicit resize and keyboard avoidance now keep Send/Stop above the keyboard. Native Send with the keyboard open passed after the fix. Remaining controls/recovery acceptance is in progress. Android API 35 emulator is available; Linux host has no Xcode/macOS/iOS runtime. Original Flutter app/data is retained. Probe uses a distinct package and synthetic credentials. No physical Android/iPhone, camera QR, signed distribution, or store delivery claim is made from source tests.
+The full app was built and installed on an Android API 35 emulator under an isolated `.nativeqa` package. The original Flutter installation and its data remain intact. Native SQLite/SecureStore initialization, sample Chats/conversation, and real-mode fresh pairing screen launched successfully.
 
-Native outcomes and exact artifact/device identifiers will be appended after the delegated runs. A fixture/probe result does not establish the full Desktop flow.
+Observed against the **existing MobileDev main-process connector, hosted OpenTunnel, and existing Desktop-owned sidecar/data**:
+
+- Fresh paste pairing passed. Actual phone/Desktop confirmation was compared in memory before approval through existing Desktop IPC. The visible Desktop approval UI click remains unverified.
+- A real prompt/reply passed. The first send exposed shared cancellation between event streams and prompt requests. A failing source regression reproduced it; separate stream cancellation fixed it. Native same-ID retry reconciled admission, cleared the pending prompt/draft, displayed the synthetic Desktop reply, and left the Desktop prompt present exactly once.
+- The native composer originally sat behind Android's keyboard. Explicit resize and keyboard avoidance fixed this: Send/Stop remain above the IME, and tapping Send with the keyboard open submitted the prompt.
+- Native question sheets opened from the real conversation footer. Selecting the safe Cancel option and tapping Send answer completed two pending questions; Desktop confirmed nothing ran or changed.
+- Native Stop cancelled an active isolated task. Desktop reported Aborted. After resolving pending questions, Activity returned to All quiet.
+- Files listed the isolated project, opened its README, toggled line wrapping, and confirmed Copy file. Working changes opened the fixture README diff, toggled wrapping, and confirmed Copy diff.
+- A synthetic unsent draft survived Android force-stop/relaunch and reopening the same conversation without clearing data.
+- Model and agent choosers loaded the actual configured Desktop options. Selection mutation is recorded separately from opening the chooser.
+- A new native send returned the expected synthetic reply after toggling AVD Wi-Fi off/on. This establishes successful sending after the toggle; a complete transport outage was not separately demonstrated.
+- Desktop revoked only the fresh QA pairing, returning to the original two devices with remote access enabled and no gateway error. The native app displayed its HTTP-401-specific authorization warning. No raw status log was retained. Native Remove computer cleared the QA app's sole local computer and returned to the welcome screen.
+- Browser sample export passed with all Router paths emitted; this does not prove real browser pairing, which is intentionally unsupported.
+
+The delegated local Android run is complete. Safe screenshots and the detailed native report are preserved in the original workspace at `.local/verification/expo-2026-10-24/native-qualification.md`. The QA build is the debug package `ai.bharatcode.bharatcode_mobile.nativeqa` (minSdk 24, targetSdk 36), using the current JavaScript through Metro. It is not an offline release artifact.
+
+Cleanup was verified by the delegate: normal MobileDev launch restored with the same profile and no temporary remote-debugging flag; ports 8767/9224 closed; only the original sidecar remains; remote access enabled with the two pre-existing devices; QA device revoked/removed; probe fixture/Metro/clipboard bridge stopped; AVD Wi-Fi enabled. The root app Metro server remains available on 8082 for development.
+
+No iOS simulator/device is available on this Linux host. Physical Android/iPhone, camera QR, signed distribution, and store delivery remain unverified. Native incremental transport delivery is proven by the isolated probe above; a completed Desktop reply alone does not establish visible incremental text in the full app.
 
 ## Dependency audit
 
