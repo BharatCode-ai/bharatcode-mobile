@@ -63,6 +63,7 @@ export function QuestionSheet({
           )}
         </View>
       ))}
+      {state.error && <Txt style={{ color: C.red }}>{state.error}</Txt>}
       <Button
         title="Send answer"
         primary

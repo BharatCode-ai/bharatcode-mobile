@@ -62,6 +62,7 @@ export function Button({
   primary = false,
   disabled = false,
   compact = false,
+  align = "center",
 }: {
   title: string;
   onPress: () => void;
@@ -69,6 +70,7 @@ export function Button({
   primary?: boolean;
   disabled?: boolean;
   compact?: boolean;
+  align?: "left" | "center";
 }) {
   return (
     <Pressable
@@ -94,7 +96,7 @@ export function Button({
         flexDirection: "row",
         gap: 8,
         alignItems: "center",
-        justifyContent: "center",
+        justifyContent: align === "left" ? "flex-start" : "center",
       })}
     >
       {icon && <Icon name={icon} color={primary ? "#26160E" : C.text} />}

@@ -6,7 +6,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AppState, Platform, View } from "react-native";
+import { AppState, Platform, Pressable, Text, View } from "react-native";
 import { fetch } from "expo/fetch";
 import * as Crypto from "expo-crypto";
 import { AppStore } from "./app-store";
@@ -15,7 +15,6 @@ import {
   ConversationStore,
   MemoryDatabase,
 } from "../storage/conversation-store";
-import { Button, Txt } from "../design/components";
 const Context = createContext<AppStore | undefined>(undefined);
 export function AppProvider({ children }: PropsWithChildren) {
   const [store, setStore] = useState<AppStore>();
@@ -83,15 +82,25 @@ export function AppProvider({ children }: PropsWithChildren) {
           justifyContent: "center",
         }}
       >
-        <Txt>{error ?? "Opening BharatCode…"}</Txt>
+        <Text style={{ color: "#F2F0E9", fontFamily: "Inter", fontSize: 16 }}>
+          {error ?? "Opening BharatCode…"}
+        </Text>
         {error && (
-          <Button
-            title="Retry opening app"
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry opening app"
+            style={{ minHeight: 48, paddingVertical: 16 }}
             onPress={() => {
               setError(undefined);
               setAttempt((v) => v + 1);
             }}
-          />
+          >
+            <Text
+              style={{ color: "#FF6933", fontFamily: "Inter", fontSize: 16 }}
+            >
+              Retry opening app
+            </Text>
+          </Pressable>
         )}
       </View>
     );

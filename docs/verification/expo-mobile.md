@@ -42,9 +42,9 @@ Independent review reproduced and implementation fixed: premature Add Computer r
 
 Owned exclusively by the designated `gpt-6-luna` / `max` delegate, including the early transport probe and app packaging/install.
 
-Early native transport probe passed using the actual TypeScript API client with Expo Fetch on Android API 35: incremental fragmented Unicode SSE, AbortController reader release, and authenticated redirect rejection. The redirect target received zero requests. The probe used a separate package and synthetic credential; this does not establish the full app/Desktop flow.
+Early native transport probe passed using the actual TypeScript API client with Expo Fetch on Android API 35: incremental fragmented Unicode SSE, AbortController reader release, and authenticated redirect rejection. The redirect target received zero requests. Native timeout checks also passed: header inactivity rejected at 20,020 ms, body inactivity at 21,001 ms, and SSE inactivity at 46,000 ms (native scheduling included). The probe used a separate package and synthetic credential; this does not establish the full app/Desktop flow.
 
-Full app acceptance is in progress. Android API 35 emulator is available; Linux host has no Xcode/macOS/iOS runtime. Original Flutter app/data is retained. Probe uses a distinct package and synthetic credentials. No physical Android/iPhone, camera QR, signed distribution, or store delivery claim is made from source tests.
+Full app Android debug packaging/install passed under the isolated `.nativeqa` ID, preserving the original Flutter installation/data. The native bundle launched sample Chats and the real-mode fresh Pair screen with SQLite/SecureStore initialization. Full Desktop acceptance is in progress. Android API 35 emulator is available; Linux host has no Xcode/macOS/iOS runtime. Original Flutter app/data is retained. Probe uses a distinct package and synthetic credentials. No physical Android/iPhone, camera QR, signed distribution, or store delivery claim is made from source tests.
 
 Native outcomes and exact artifact/device identifiers will be appended after the delegated runs. A fixture/probe result does not establish the full Desktop flow.
 

@@ -96,7 +96,12 @@ export default function ChatsScreen() {
               paddingVertical: 12,
             }}
           >
-            <Button title={item.title} compact onPress={() => open(item.id)} />
+            <Button
+              title={item.title}
+              align="left"
+              compact
+              onPress={() => open(item.id)}
+            />
             <View style={[s.row, { paddingHorizontal: 10 }]}>
               <Txt muted style={{ flex: 1 }}>
                 {item.project}

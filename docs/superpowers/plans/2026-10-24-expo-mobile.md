@@ -154,4 +154,4 @@ Define types once in Task 2; services consume them rather than raw route state:
 
 ## Plan review and execution
 
-This planning turn creates documents only. User review comes before implementation because they requested a plan first. Proposed execution: primary implements the tasks inline; the required Luna/max delegate owns native packaging/install/qualification and any later authorized release work. No repeated old/new comparison checkpoints. Fresh pairing is the only proposed visible migration compromise and is called out for review.
+Approved for full implementation by the user on 24 October 2026, including fresh pairing. Primary implements inline; Luna/max owns native packaging/install/qualification and any later authorized release work. No repeated old/new comparison checkpoints. Tasks 1–6 are implemented and locally source-verified; Task 7 is in delegated native acceptance. See docs/verification/expo-mobile.md for observed results rather than treating plan checkboxes as verification evidence.
