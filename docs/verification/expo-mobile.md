@@ -12,7 +12,7 @@ Fresh pairing is explicitly approved. Desktop chats remain server-owned. No auto
 
 - `npm run typecheck`: passed.
 - `npm run lint`: passed.
-- `npm test -- --runInBand`: 35 tests passed across nine suites.
+- `npm test -- --runInBand`: 36 tests passed across nine suites.
 - `npx expo install --check`: compatible dependencies.
 - `npx expo-doctor`: 20/20 checks passed.
 - Connector `npm test`: 31/31 passed against unchanged source.
@@ -44,7 +44,7 @@ Owned exclusively by the designated `gpt-6-luna` / `max` delegate, including the
 
 Early native transport probe passed using the actual TypeScript API client with Expo Fetch on Android API 35: incremental fragmented Unicode SSE, AbortController reader release, and authenticated redirect rejection. The redirect target received zero requests. Native timeout checks also passed: header inactivity rejected at 20,020 ms, body inactivity at 21,001 ms, and SSE inactivity at 46,000 ms (native scheduling included). The probe used a separate package and synthetic credential; this does not establish the full app/Desktop flow.
 
-Full app Android debug packaging/install passed under the isolated `.nativeqa` ID, preserving the original Flutter installation/data. The native bundle launched sample Chats and the real-mode fresh Pair screen with SQLite/SecureStore initialization. Full Desktop acceptance is in progress. Android API 35 emulator is available; Linux host has no Xcode/macOS/iOS runtime. Original Flutter app/data is retained. Probe uses a distinct package and synthetic credentials. No physical Android/iPhone, camera QR, signed distribution, or store delivery claim is made from source tests.
+Full app Android debug packaging/install passed under the isolated `.nativeqa` ID, preserving the original Flutter installation/data. The native bundle launched sample Chats and the real-mode fresh Pair screen with SQLite/SecureStore initialization. Real fresh pairing through the existing MobileDev main-process connector and hosted OpenTunnel passed. Confirmation was compared in memory before programmatic approval through the existing Desktop IPC; the visible Desktop approval UI remains unverified. The first native send exposed shared cancellation between streaming and prompt requests. A source regression reproduced the prompt abort; separating stream cancellation fixed it. Native same-ID retry reconciled Desktop admission, cleared the local pending prompt/draft, and displayed the synthetic Desktop reply. The prompt was present exactly once. Android keyboard qualification exposed composer controls behind the IME; explicit resize and keyboard avoidance now keep Send/Stop above the keyboard. Native Send with the keyboard open passed after the fix. Remaining controls/recovery acceptance is in progress. Android API 35 emulator is available; Linux host has no Xcode/macOS/iOS runtime. Original Flutter app/data is retained. Probe uses a distinct package and synthetic credentials. No physical Android/iPhone, camera QR, signed distribution, or store delivery claim is made from source tests.
 
 Native outcomes and exact artifact/device identifiers will be appended after the delegated runs. A fixture/probe result does not establish the full Desktop flow.
 

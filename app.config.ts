@@ -10,6 +10,7 @@ const config: ExpoConfig = {
   android: {
     package: "ai.bharatcode.bharatcode_mobile",
     permissions: ["CAMERA"],
+    softwareKeyboardLayoutMode: "resize",
   },
   ios: {
     bundleIdentifier: "ai.bharatcode.bharatcodeMobile",
