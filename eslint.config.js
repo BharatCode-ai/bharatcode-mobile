@@ -5,6 +5,7 @@ module.exports = defineConfig([
   {
     ignores: [
       "desktop-connector/**",
+      "vendor/**",
       "desktop-integration/**",
       ".superpowers/**",
       ".local/**",

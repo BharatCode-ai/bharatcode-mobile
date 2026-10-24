@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "jest",
-    "check": "npm run typecheck && npm run lint && npm test -- --runInBand"
+    "check": "npm run typecheck && npm run lint && npm test -- --runInBand && npm run test:security",
+    "test:security": "node --test security/*.test.cjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -49,11 +50,13 @@
     "jest": "~30.5.2",
     "jest-expo": "~58.0.12",
     "prettier": "^3.9.10",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "node-forge": "file:vendor/node-forge"
   },
   "overrides": {
     "markdown-it": "14.3.3",
     "linkify-it": "5.0.2",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "node-forge": "$node-forge"
   }
 }

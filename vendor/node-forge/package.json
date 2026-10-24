@@ -1,0 +1,26 @@
+{
+  "name": "node-forge",
+  "description": "JavaScript implementations of network transports, cryptography, ciphers, PKI, message digests, and various utilities.",
+  "homepage": "https://github.com/digitalbazaar/forge",
+  "author": {
+    "name": "Digital Bazaar, Inc.",
+    "email": "support@digitalbazaar.com",
+    "url": "http://digitalbazaar.com/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/digitalbazaar/forge"
+  },
+  "license": "(BSD-3-Clause OR GPL-2.0)",
+  "main": "lib/index.js",
+  "browser": {
+    "buffer": false,
+    "crypto": false,
+    "process": false
+  },
+  "engines": {
+    "node": ">= 6.13.0"
+  },
+  "version": "1.4.0-bharatcode.1",
+  "private": true
+}

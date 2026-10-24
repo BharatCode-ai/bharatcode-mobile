@@ -41,7 +41,9 @@ The draft-storage benchmark (`node scripts/benchmark-storage.cjs --baseline`, th
 
 ## Source verification
 
-- `npm run check`: TypeScript, ESLint without warnings, and 49 tests across 10 suites passed after restarting the host and adding cold-start and conversation lifecycle regressions.
+- `npm run check`: TypeScript, ESLint without warnings, 49 mobile tests across 10 suites, and 15 node-forge security regressions passed.
+- Expo dependency compatibility and Expo Doctor (20/20 checks) passed.
+- `npm audit --audit-level=high` and `npm audit --omit=dev --audit-level=high`: no known advisories for the resolved dependency tree. Registry audit metadata does not analyze the local node-forge backport; its patch, regression coverage, and scope are documented in the [Expo mobile verification record](expo-mobile.md).
 - `npm test --prefix desktop-connector`: 35 tests passed.
 - Linux host-browser helpers: 3 tests passed.
 - Desktop integration generator: 2 tests passed against the available local Desktop clone.

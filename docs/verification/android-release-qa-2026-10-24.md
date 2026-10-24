@@ -8,7 +8,9 @@ The tested release variant uses the isolated application ID ai.bharatcode.bharat
 
 The APK uses a local Android debug certificate for QA, not distribution signing. It is not included in this repository. Installation used the isolated releaseqa package; the existing Flutter and nativeqa applications and their data were preserved.
 
-The final local gates passed 49 mobile tests across 10 suites, TypeScript, lint, 35 Desktop connector tests, and five helper tests. The GitHub workflow runs the mobile source checks and Expo dependency check, plus Desktop connector tests and Linux helper tests.
+The original native QA build passed 49 mobile tests across 10 suites, TypeScript, lint, 35 Desktop connector tests, and five helper tests. A subsequent Node-only tooling security backport adds 15 security regressions; current source gates and the GitHub workflow pass those tests and the high-severity npm audit.
+
+The APK described here predates the local `node-forge` backport and retains the artifact hash and source manifest recorded at qualification time. The backport changes Expo's Node-side CLI/code-signing dependency, not mobile app sources; no native rebuild or new APK qualification was performed for it. The QA results below establish the tested mobile runtime behavior, not the vendored tooling implementation. Its scope and verification are recorded in the [Expo mobile verification record](expo-mobile.md).
 
 ## Existing Desktop and hosted connection
 

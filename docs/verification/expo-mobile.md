@@ -17,14 +17,20 @@ The final source changes address streamed-message projection and rendering work,
 Final local gates passed:
 
 - Mobile TypeScript, ESLint, and 49 tests across 10 suites.
+- Node-forge security regression suite: 15 tests.
 - Expo dependency compatibility check.
 - Expo Doctor: 20/20 checks.
 - Desktop connector suite: 35 tests.
 - Linux host-browser helpers: 3 tests.
 - Desktop integration generator: 2 tests against the available pinned Desktop source.
-- GitHub Actions runs the mobile source/dependency checks, connector suite, and Linux host-browser helper suite on pushes and pull requests.
+- Full and production-only npm audits: no known advisories in the resolved dependency tree.
+- GitHub Actions runs the mobile source/dependency checks, high-severity audit, connector suite, and Linux host-browser helper suite on pushes and pull requests.
 
-The fresh `npm audit` and `npm audit --omit=dev` checks each reported four high-severity advisories in the installed Expo CLI/code-signing chain: `expo/node_modules/@expo/cli` → `@expo/code-signing-certificates` → `node-forge` at or below 1.4.0 (GHSA-86w9-cpqp-85rv). The production-only audit still includes this Expo package dependency; it does not establish that the affected CLI tooling ships in the embedded Android app bundle. The offered automatic Expo fix is a major downgrade to Expo 44, so the qualified dependency tree was not changed as part of this release. This audit result is separate from the passing source gates.
+### Dependency advisory and local backport
+
+The Expo 58.0.19 CLI and code-signing dependency chain used node-forge 1.4.0, affected by GHSA-86w9-cpqp-85rv. No patched upstream release was available for this qualification, and the proposed automatic Expo fix would downgrade Expo to version 44. The app keeps Expo 58.0.19 and uses a checked-in, non-official local backport at `vendor/node-forge` version `1.4.0-bharatcode.1`. It retains the upstream library source and license; only `lib/rsa.js` changes. RSA PKCS#1 v1.5 verification now accepts the DigestInfo algorithm sequence only when it contains an OID and, optionally, a universal primitive empty NULL. The root dependency and npm override route both Expo CLI and Expo code-signing to this source. A clean `npm ci --ignore-scripts` resolved both consumers to the local copy; see the [backport notes](../../vendor/node-forge/README.md).
+
+The 15 security regressions exercise malformed signatures through both installed Expo consumers and validate ordinary Expo key, certificate, signature, and CSR workflows. Ten malformed-case checks were reproduced against upstream before the patch; the patched implementation rejects them while preserving valid Expo workflows. The backport passed a fresh source review. Both `npm audit` and `npm audit --omit=dev` now report no known advisories in the resolved tree. Registry audit metadata does not inspect the locally vendored implementation, so that result alone does not prove the backport correct; the evidence is the source patch, regression suite, dependency resolution check, and review. The backport is for Expo's Node-side tooling and is not imported by mobile app sources.
 
 The mobile tests cover protocol validation, bounded SSE parsing and projection, durable drafts and outbox behavior, request isolation, question/permission decisions, lifecycle recovery, and key UI interactions. Passing tests establish their covered cases; they do not substitute for native acceptance.
 

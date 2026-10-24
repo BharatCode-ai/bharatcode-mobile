@@ -72,7 +72,7 @@ Web always uses an in-memory sample client and never initializes native credenti
 
 ## Source and native verification
 
-See the [verification record](docs/verification/expo-mobile.md) for source gates and platform limits, the [Android release QA report](docs/verification/android-release-qa-2026-10-24.md) for the final emulator qualification, and the [performance audit](docs/verification/performance-2026-10-24.md) for source-level measurements. Final source gates passed 49 mobile tests, TypeScript and lint, 35 connector tests, and five helper tests. Source tests remain distinct from native acceptance through hosted OpenTunnel.
+See the [verification record](docs/verification/expo-mobile.md) for source gates, the node-forge security backport, and platform limits; the [Android release QA report](docs/verification/android-release-qa-2026-10-24.md) for the emulator qualification; and the [performance audit](docs/verification/performance-2026-10-24.md) for source-level measurements. Final source gates passed 49 mobile tests, 15 security regressions, TypeScript and lint, 35 connector tests, and five helper tests. Full and production-only npm audits report no known advisories for the resolved tree; the local backport and audit scope are documented separately. Source tests remain distinct from native acceptance through hosted OpenTunnel.
 
 Run the Desktop connector and helper gates with:
 
