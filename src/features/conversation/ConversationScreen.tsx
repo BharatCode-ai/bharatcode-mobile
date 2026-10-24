@@ -44,8 +44,10 @@ export default function ConversationScreen() {
   useEffect(() => {
     if (id && store.getSnapshot().selected?.id !== id)
       void store.openConversation(id);
+  }, [id, store, state.online, state.device]);
+  useEffect(() => {
     return () => {
-      if (store.getSnapshot().selected?.id === id) store.backToChats();
+      if (id) store.closeConversation(id);
     };
   }, [id, store]);
   useEffect(() => {

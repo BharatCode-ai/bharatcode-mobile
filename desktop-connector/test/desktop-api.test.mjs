@@ -5,6 +5,32 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createDesktopAPI } from '../src/desktop-api.mjs'
 
+test('stored admission is acknowledged while the upstream async HTTP acknowledgement is still pending', async t => {
+  const root = await mkdtemp(join(tmpdir(),'bc-admission-early-'))
+  t.after(()=>rm(root,{recursive:true,force:true}))
+  let release, forwarded=0, posted=false
+  const acknowledgement=new Promise(resolve=>{release=resolve})
+  const request=async(path,method,_body)=>{
+    if(path==='/session/ses_one') return {data:{id:'ses_one',directory:'/fixture'}}
+    if(path.includes('/prompt_async')) { forwarded++; posted=true; await acknowledgement; return {data:{}} }
+    if(path.includes('/message/msg_early')) {
+      if(!posted) throw Object.assign(new Error('Not stored'),{status:404})
+      return {data:{info:{id:'msg_early',role:'user'},parts:[{type:'text',text:'Only once'}]}}
+    }
+    throw new Error('Unexpected route '+path)
+  }
+  const api=await createDesktopAPI({request,storePath:join(root,'admissions.json')})
+  const sending=api.handle('POST','/api/session/ses_one/prompt',{id:'msg_early',prompt:{text:'Only once'}})
+  try {
+    const early=await Promise.race([sending.then(()=>true),new Promise(resolve=>setTimeout(()=>resolve(false),150))])
+    assert.equal(early,true,'A stored Desktop message should be admitted without waiting for its HTTP acknowledgement')
+    assert.equal(forwarded,1)
+  } finally { release(); await sending }
+  const reopened=await createDesktopAPI({request,storePath:join(root,'admissions.json')})
+  await reopened.handle('POST','/api/session/ses_one/prompt',{id:'msg_early',prompt:{text:'Only once'}})
+  assert.equal(forwarded,1)
+})
+
 test('Desktop history uses legacy parts, preserves cursor and never switches execution engine', async t => {
   const root = await mkdtemp(join(tmpdir(), 'bc-desktop-api-')); t.after(() => rm(root, {recursive:true,force:true}))
   const calls = []

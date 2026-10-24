@@ -129,7 +129,7 @@ export default function ChatsScreen() {
         ListEmptyComponent={
           <Empty
             title={
-              state.loadingSessions
+              state.loadingSessions || state.busy
                 ? "Loading chats"
                 : state.error
                   ? "Couldn’t load chats"
@@ -138,7 +138,7 @@ export default function ChatsScreen() {
                     : "No chats yet"
             }
             detail={
-              state.loadingSessions
+              state.loadingSessions || state.busy
                 ? "Getting your conversations from Desktop."
                 : "Choose a project, start a chat, or pull to refresh."
             }

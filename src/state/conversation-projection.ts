@@ -1,13 +1,34 @@
-import { Json, WireEvent } from "../domain/types";
+import { ChatMessage, Json, WireEvent } from "../domain/types";
 import { list, message } from "../domain/decode";
+function sameMessage(a: ChatMessage, b: ChatMessage) {
+  return (
+    a.id === b.id &&
+    a.role === b.role &&
+    a.text === b.text &&
+    a.tools.length === b.tools.length &&
+    a.tools.every((tool, i) => {
+      const other = b.tools[i];
+      return (
+        !!other &&
+        tool.id === other.id &&
+        tool.name === other.name &&
+        tool.status === other.status &&
+        tool.input === other.input &&
+        tool.output === other.output
+      );
+    })
+  );
+}
 export class ConversationProjection {
   raw: Json[] = [];
   private seen = new Set<string>();
   private overlays = new Map<string, Map<string, string>>();
+  private decoded = new WeakMap<Json, ChatMessage>();
   private tail?: string;
   cursor?: string;
   private loaded = false;
   hydrate(raw: Json[]) {
+    this.decoded = new WeakMap();
     this.raw = raw;
     this.tail = raw.at(-1)?.id as string | undefined;
   }
@@ -21,9 +42,14 @@ export class ConversationProjection {
       if (this.tail && !incoming.some((r) => r.id === this.tail)) {
         this.raw = [];
         this.overlays.clear();
+        this.decoded = new WeakMap();
         this.loaded = false;
       }
       for (const item of incoming) {
+        const i = this.raw.findIndex((r) => r.id === item.id);
+        const existing = this.raw[i];
+        const previous = existing ? this.decoded.get(existing) : undefined;
+        this.decoded.delete(item);
         const overlays = this.overlays.get(String(item.id));
         for (const p of list(item.content)) {
           const live = overlays?.get(String(p.id));
@@ -35,9 +61,10 @@ export class ConversationProjection {
           )
             overlays?.delete(String(p.id));
         }
-        const i = this.raw.findIndex((r) => r.id === item.id);
         if (i < 0) this.raw.push(item);
         else this.raw[i] = item;
+        if (previous && sameMessage(previous, this.decode(item)))
+          this.decoded.set(item, previous);
       }
       if (!this.loaded) {
         this.cursor = cursor;
@@ -69,6 +96,7 @@ export class ConversationProjection {
         this.overlays.get(d.assistantMessageID) ?? new Map<string, string>();
       this.overlays.set(d.assistantMessageID, parts);
       const existing = list(raw.content).find((p) => p.id === d.textID);
+      this.decoded.delete(raw);
       if (event.type.endsWith(".delta"))
         parts.set(
           d.textID,
@@ -81,16 +109,25 @@ export class ConversationProjection {
     return true;
   }
   messages() {
-    return this.raw.map((raw) => {
-      const overlay = this.overlays.get(String(raw.id));
-      if (!overlay) return message(raw);
-      const content = list(raw.content).map((p) => ({ ...p }));
-      for (const [id, text] of overlay) {
-        const i = content.findIndex((p) => p.id === id);
-        if (i < 0) content.push({ id, type: "text", text });
-        else content[i] = { id, type: "text", text };
-      }
-      return message({ ...raw, content });
-    });
+    return this.raw.map((raw) => this.decode(raw));
+  }
+  private decode(raw: Json): ChatMessage {
+    const cached = this.decoded.get(raw);
+    if (cached) return cached;
+    const overlay = this.overlays.get(String(raw.id));
+    if (!overlay) {
+      const decoded = message(raw);
+      this.decoded.set(raw, decoded);
+      return decoded;
+    }
+    const content = list(raw.content).map((p) => ({ ...p }));
+    for (const [id, text] of overlay) {
+      const i = content.findIndex((p) => p.id === id);
+      if (i < 0) content.push({ id, type: "text", text });
+      else content[i] = { id, type: "text", text };
+    }
+    const decoded = message({ ...raw, content });
+    this.decoded.set(raw, decoded);
+    return decoded;
   }
 }

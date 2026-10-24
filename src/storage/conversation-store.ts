@@ -1,4 +1,8 @@
-import { ConversationRecord, PendingPrompt } from "../domain/types";
+import {
+  ConversationRecord,
+  PendingPrompt,
+  SessionSummary,
+} from "../domain/types";
 export interface Database {
   get(key: string): Promise<string | undefined>;
   set(key: string, value: string): Promise<void>;
@@ -39,8 +43,22 @@ export class ConversationStore {
   private key(device: string, session: string) {
     return `conversation:${device}:${session}`;
   }
+  private cacheKey(device: string, session: string) {
+    return `history:${this.key(device, session)}`;
+  }
   read(device: string, session: string): Promise<ConversationRecord> {
-    return this.db.transaction(() => this.readCurrent(device, session));
+    return this.db.transaction(async () => {
+      const value = await this.readCurrent(device, session);
+      const text = await this.db.get(this.cacheKey(device, session));
+      if (!text) return value;
+      const cached = JSON.parse(text) as ConversationRecord;
+      return {
+        ...value,
+        session: cached.session,
+        messages: cached.messages,
+        sequence: cached.sequence,
+      };
+    });
   }
   private async readCurrent(
     device: string,
@@ -56,6 +74,21 @@ export class ConversationStore {
   ) {
     return this.db.transaction(async () => {
       const value = await this.readCurrent(device, session);
+      // Older app versions stored history alongside each draft. Move it once,
+      // in this same transaction, before persisting the small writable record.
+      if (value.messages !== undefined || value.sequence !== undefined) {
+        const cacheKey = this.cacheKey(device, session);
+        if (!(await this.db.get(cacheKey)))
+          await this.db.set(
+            cacheKey,
+            JSON.stringify({
+              messages: value.messages,
+              sequence: value.sequence,
+            }),
+          );
+        delete value.messages;
+        delete value.sequence;
+      }
       work(value);
       await this.db.set(this.key(device, session), JSON.stringify(value));
     });
@@ -82,16 +115,26 @@ export class ConversationStore {
     s: string,
     messages: Record<string, unknown>[],
     sequence: number,
+    session?: SessionSummary,
   ) {
-    return this.update(d, s, (v) => {
-      v.messages = messages;
-      v.sequence = sequence;
+    return this.db.transaction(async () => {
+      const value = await this.readCurrent(d, s);
+      if (value.messages !== undefined || value.sequence !== undefined) {
+        delete value.messages;
+        delete value.sequence;
+        await this.db.set(this.key(d, s), JSON.stringify(value));
+      }
+      await this.db.set(
+        this.cacheKey(d, s),
+        JSON.stringify({ messages, sequence, session }),
+      );
     });
   }
   clearDevice(d: string) {
-    return this.db.transaction(() =>
-      this.db.removePrefix(`conversation:${d}:`),
-    );
+    return this.db.transaction(async () => {
+      await this.db.removePrefix(`conversation:${d}:`);
+      await this.db.removePrefix(`history:conversation:${d}:`);
+    });
   }
 }
 export interface Credentials {

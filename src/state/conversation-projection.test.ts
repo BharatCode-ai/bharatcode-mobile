@@ -66,3 +66,56 @@ test("long gap replaces the history window and older cursor", () => {
   p.page([raw("msg99", "previous")], undefined, true);
   expect(p.messages().map((m) => m.id)).toEqual(["msg99", "msg100"]);
 });
+test("streaming only decodes the changed reply and preserves completed message identities", () => {
+  const p = new ConversationProjection();
+  p.page([raw("tail", "Live"), raw("head", "Completed")], undefined);
+  const before = p.messages();
+  p.apply(
+    {
+      type: "session.next.text.delta",
+      data: {
+        sessionID: "ses",
+        assistantMessageID: "tail",
+        textID: "txt",
+        delta: " update",
+      },
+    },
+    "ses",
+  );
+  const after = p.messages();
+  expect(after[0]).toBe(before[0]);
+  expect(after[1]?.text).toBe("Live update");
+  expect(after[1]).not.toBe(before[1]);
+  expect(p.messages()[1]).toBe(after[1]);
+  p.page([raw("tail", "Live update"), raw("head", "Corrected")], undefined);
+  expect(p.messages()[0]?.text).toBe("Corrected");
+  expect(p.messages()[1]?.text).toBe("Live update");
+});
+test("identical history refreshes preserve completed reply identities while tool changes replace them", () => {
+  const p = new ConversationProjection();
+  const page = (output: string) => [
+    {
+      ...raw("tail", "Live"),
+      content: [
+        {
+          id: "tool",
+          type: "tool",
+          name: "Read",
+          state: { status: "completed", content: output },
+        },
+      ],
+    },
+    raw("head", "Completed"),
+  ];
+  p.page(page("original"), undefined);
+  const before = p.messages();
+  p.page(page("original"), undefined);
+  const refreshed = p.messages();
+  expect(refreshed[0]).toBe(before[0]);
+  expect(refreshed[1]).toBe(before[1]);
+  p.page(page("changed"), undefined);
+  const changed = p.messages();
+  expect(changed[0]).toBe(before[0]);
+  expect(changed[1]?.tools[0]?.output).toBe("changed");
+  expect(changed[1]).not.toBe(before[1]);
+});

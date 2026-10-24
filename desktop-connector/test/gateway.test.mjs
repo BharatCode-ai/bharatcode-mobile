@@ -8,8 +8,19 @@ import { createGateway } from '../src/gateway.mjs'
 
 async function setup(t, options = {}) {
   const seen = []
+  let admittedAt = Infinity
   const upstream = createServer((req, res) => {
     seen.push({ url: req.url, method: req.method, headers: req.headers })
+    if (options.asyncAdmission && req.url.startsWith('/session/ses_one/prompt_async?')) {
+      req.resume()
+      admittedAt = Date.now() + 250
+      res.writeHead(204); res.end(); return
+    }
+    if (options.asyncAdmission && req.url.startsWith('/session/ses_one/message/msg_async?')) {
+      res.setHeader('content-type', 'application/json')
+      if (Date.now() < admittedAt) { res.writeHead(404); res.end('{}'); return }
+      res.end(JSON.stringify({ info: { id: 'msg_async', role: 'user' }, parts: [{ type: 'text', text: 'One request' }] })); return
+    }
     if (req.url === '/session/ses_one') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ id: 'ses_one', directory: '/work/fixture project' })); return }
     if (req.url === '/api/model') {
       res.setHeader('content-type', 'application/json')
@@ -18,6 +29,15 @@ async function setup(t, options = {}) {
     }
     if (req.url === '/api/session/ses_changes') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: { location: { directory: '/work/storefront' } } })); return }
     if (req.url.startsWith('/vcs/diff?')) { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify([{ file: 'address.ts', patch: '@@ -1 +1 @@\n-old\n+new', additions: 1, deletions: 1 }])); return }
+    if (req.url === '/event?directory=%2Fwork%2Ffixture+project') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      for (const event of [
+        { type: 'message.updated', properties: { sessionID: 'ses_one', info: { id: 'msg_one', role: 'assistant' } } },
+        { type: 'message.part.updated', properties: { sessionID: 'ses_one', part: { id: 'txt_one', messageID: 'msg_one', type: 'text', text: '' } } },
+        { type: 'message.part.delta', properties: { sessionID: 'ses_one', messageID: 'msg_one', partID: 'txt_one', field: 'text', delta: 'Legacy live response' } },
+      ]) res.write(`data: ${JSON.stringify(event)}\n\n`)
+      return
+    }
     if (req.url === '/api/event' || req.url === '/api/event?directory=%2Fwork%2Ffixture+project') {
       res.writeHead(200, { 'content-type': 'text/event-stream' })
       for (const event of [
@@ -236,8 +256,25 @@ test('mobile live endpoint projects native events and closes on device revocatio
   const response = await fetch(c.origin + '/mobile/v1/session/ses_one/live', { headers: { authorization: `Bearer ${paired.token}` } })
   try {
     assert.equal(response.status, 200)
-    assert.deepEqual(c.seen.map(item => item.url), ['/session/ses_one', '/api/event?directory=%2Fwork%2Ffixture+project'])
+    assert.deepEqual(c.seen.map(item => item.url), ['/session/ses_one', '/event?directory=%2Fwork%2Ffixture+project'])
   } finally { await response.body.cancel() }
+})
+
+test('Desktop live delivers compatibility-engine text before history refresh', async t => {
+  const c = await setup(t, { runtime: 'desktop' })
+  const { token } = await c.pair()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 750)
+  let text = ''
+  try {
+    const response = await fetch(c.origin + '/mobile/v1/session/ses_one/live', { headers: { authorization: `Bearer ${token}` }, signal: controller.signal })
+    for await (const chunk of response.body) {
+      text += Buffer.from(chunk).toString()
+      if (text.includes('Legacy live response')) break
+    }
+  } catch (error) { if (error.name !== 'AbortError') throw error }
+  finally { clearTimeout(timer); controller.abort() }
+  assert.ok(text.includes('Legacy live response'), 'Expected a live compatibility-engine text delta')
 })
 
 test('Desktop advertises live history recovery without a native replay journal', async t => {
@@ -247,4 +284,12 @@ test('Desktop advertises live history recovery without a native replay journal',
   const health = await response.json()
   assert.equal(health.capabilities.replay, false)
   assert.equal(health.capabilities.live, true)
+})
+
+test('Desktop accepts a real bodyless 204 async acknowledgement before delayed storage', async t => {
+  const c = await setup(t, { runtime: 'desktop', asyncAdmission: true })
+  const { token } = await c.pair()
+  const response = await c.post('/api/session/ses_one/prompt', { id: 'msg_async', prompt: { text: 'One request' } }, token)
+  assert.equal(response.status, 200)
+  assert.equal(c.seen.filter(item => item.url.includes('/prompt_async')).length, 1)
 })

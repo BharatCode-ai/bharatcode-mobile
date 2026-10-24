@@ -33,7 +33,7 @@ test('Desktop compatibility events become selected-chat text and request signals
     ]) yield Buffer.from(`data: ${JSON.stringify(event)}\n\n`)
   }
   const events=[];for await(const event of projectEvents(source(),'ses_one',{desktop:true}))events.push(event)
-  assert.deepEqual(events.map(e=>e.type),['session.next.tool.progress','session.next.text.ended','session.next.text.delta','permission.v2.asked'])
+  assert.deepEqual(events.map(e=>e.type),['session.next.tool.progress','session.next.text.started','session.next.text.delta','permission.v2.asked'])
   assert.equal(events[2].data.assistantMessageID,'msg_one')
   assert.equal(JSON.stringify(events).includes('private'),false)
 })
@@ -43,4 +43,19 @@ test('attachment after text creation resolves unknown metadata once and streams 
   let lookups=0;const events=[]
   for await(const event of projectEvents(source(),'ses_one',{desktop:true,resolveMessage:async()=>{lookups++;return {info:{id:'msg_one',role:'assistant'},parts:[{id:'prt_one',type:'text'}]}}}))events.push(event)
   assert.equal(lookups,1);assert.deepEqual(events.map(e=>e.type),['session.next.text.delta','session.next.text.delta'])
+})
+
+test('Desktop text creation starts a part and only the completed snapshot ends it', async () => {
+  async function* source() {
+    for (const event of [
+      { type: 'message.updated', properties: { sessionID: 'ses_one', info: { id: 'msg_one', role: 'assistant' } } },
+      { type: 'message.part.updated', properties: { sessionID: 'ses_one', part: { id: 'txt_one', messageID: 'msg_one', type: 'text', text: '', time: { start: 100 } } } },
+      { type: 'message.part.delta', properties: { sessionID: 'ses_one', messageID: 'msg_one', partID: 'txt_one', field: 'text', delta: 'Live answer' } },
+      { type: 'message.part.updated', properties: { sessionID: 'ses_one', part: { id: 'txt_one', messageID: 'msg_one', type: 'text', text: 'Live answer', time: { start: 100, end: 200 } } } },
+    ]) yield Buffer.from(`data: ${JSON.stringify(event)}\n\n`)
+  }
+  const events = []
+  for await (const event of projectEvents(source(), 'ses_one', { desktop: true })) events.push(event)
+  assert.deepEqual(events.map(event => event.type), ['session.next.tool.progress', 'session.next.text.started', 'session.next.text.delta', 'session.next.text.ended'])
+  assert.equal(events.at(-1).data.text, 'Live answer')
 })

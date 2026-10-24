@@ -49,6 +49,7 @@ export interface PendingPrompt {
 }
 export interface ConversationRecord {
   draft: string;
+  session?: SessionSummary;
   pending?: PendingPrompt;
   messages?: Json[];
   sequence?: number;

@@ -103,7 +103,7 @@ export async function createGateway(options) {
           if (typeof session?.directory !== 'string') throw status(502, 'Desktop session location unavailable')
           directory = session.directory
         }
-        const eventPath = '/api/event' + (directory === undefined ? '' : '?' + new URLSearchParams({ directory }))
+        const eventPath = (options.runtime === 'desktop' ? '/event' : '/api/event') + (directory === undefined ? '' : '?' + new URLSearchParams({ directory }))
         const response = await fetch(upstream + eventPath, {
           headers: { authorization: 'Basic ' + Buffer.from(`${options.username ?? 'opencode'}:${options.password}`).toString('base64'), accept: 'text/event-stream' },
           redirect: 'error', signal: cancellation.signal,
@@ -172,6 +172,7 @@ export async function createGateway(options) {
       signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(20_000)]),
     })
     if (!response.ok) { await response.body?.cancel(); throw status(response.status, 'Computer could not complete the request') }
+    if (!response.body) return { data: undefined, cursor: response.headers.get('x-next-cursor') ?? undefined }
     const chunks = []; let size = 0
     for await (const chunk of response.body) { size += chunk.length; if (size > 16_777_216) throw status(413, 'Computer response is too large'); chunks.push(chunk) }
     const text = Buffer.concat(chunks).toString()

@@ -29,6 +29,10 @@ Native mobile app → hosted OpenTunnel → existing Desktop connector → exist
 
 There is no separate mobile agent, account, BC-managed relay, LAN mode, or manual hostname field. Use the Desktop integration described in [desktop-integration/README.md](desktop-integration/README.md). The older published Desktop beta alone does not establish mobile support. The integration targets Desktop source `1e97842919d87a350b38ea5fcf55f952af072e2e`.
 
+## Desktop connector compatibility
+
+The connector uses the existing Desktop sidecar, project data, and execution model. It handles the sidecar's bodyless successful prompt acknowledgements and reconciles an uncertain submission against the stored message before retrying the same request ID. Live replies subscribe to the compatibility engine's project-scoped event stream. These paths were covered by connector tests and the release qualification; they do not start a second Desktop agent or add another network route.
+
 **Moving from Flutter requires fresh pairing.** Desktop conversations remain available after pairing. Unsent drafts stored only in Flutter are not imported into the new SQLite/SecureStore storage. Preserve any text you need before replacing an existing installation. Matching product identifiers do not guarantee an in-place update: signing and provisioning must also match. Do not uninstall or clear app data to bypass a signing mismatch.
 
 ## Development
@@ -68,9 +72,9 @@ Web always uses an in-memory sample client and never initializes native credenti
 
 ## Source and native verification
 
-See the [verification record](docs/verification/expo-mobile.md) for commands, observed results, and native platform limitations. Client tests cover protocol validation, bounded streaming, draft/outbox safety, stale request isolation, requests, and key UI interactions. They are separate from native acceptance through the hosted tunnel.
+See the [verification record](docs/verification/expo-mobile.md) for source gates and platform limits, the [Android release QA report](docs/verification/android-release-qa-2026-10-24.md) for the final emulator qualification, and the [performance audit](docs/verification/performance-2026-10-24.md) for source-level measurements. Final source gates passed 49 mobile tests, TypeScript and lint, 35 connector tests, and five helper tests. Source tests remain distinct from native acceptance through hosted OpenTunnel.
 
-The unchanged connector and Desktop helper gates are:
+Run the Desktop connector and helper gates with:
 
 ```sh
 cd desktop-connector

@@ -39,7 +39,8 @@ export async function* projectEvents(source, sessionID, options = {}) {
         if (event.type === 'message.part.delta' && data.field === 'text' && parts.get(data.partID) === 'text' && roles.get(data.messageID) === 'assistant') {
           event = { id: event.id, type: 'session.next.text.delta', data: { sessionID, assistantMessageID: data.messageID, textID: data.partID, delta: data.delta } }
         } else if (event.type === 'message.part.updated' && data.part?.type === 'text' && roles.get(data.part.messageID) === 'assistant') {
-          event = { id: event.id, type: 'session.next.text.ended', data: { sessionID, assistantMessageID: data.part.messageID, textID: data.part.id, text: data.part.text } }
+          const phase = data.part.time?.end === undefined ? 'started' : 'ended'
+          event = { id: event.id, type: 'session.next.text.' + phase, data: { sessionID, assistantMessageID: data.part.messageID, textID: data.part.id, text: data.part.text } }
         } else if (/^(permission|question)\.(asked|replied|rejected)$/.test(event.type)) {
           event = { id: event.id, type: event.type.replace('.', '.v2.'), data: { sessionID, id: data.id, requestID: data.requestID } }
         } else if (/^(message\.(updated|removed|part\.(updated|removed|delta))|session\.(status|error|updated))$/.test(event.type)) {

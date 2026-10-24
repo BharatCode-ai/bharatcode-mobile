@@ -88,6 +88,7 @@ export class AppStore {
   private api?: API;
   private clientRevision = 0;
   private conversationRevision = 0;
+  private openingConversation?: string;
   private searchRevision = 0;
   private pairRevision = 0;
   private connection = new AbortController();
@@ -156,7 +157,9 @@ export class AppStore {
       const raw = await this.persistence.db.get("devices");
       const devices: DesktopDevice[] = raw ? JSON.parse(raw) : [];
       this.patch({ devices });
-      if (devices[0]) await this.connectDevice(devices[0]);
+      // Restore local navigation before network health/history. An unavailable
+      // computer must not hold the app behind its HTTP timeout at cold start.
+      if (devices[0]) void this.connectDevice(devices[0]);
     } catch (e) {
       this.fail(e);
     } finally {
@@ -235,7 +238,7 @@ export class AppStore {
           "Saved pairing could not be opened. Pair your computer again.",
         );
       this.api = this.factory(device.origin, token);
-      await this.health(rev);
+      await this.recover(rev);
     } catch (e) {
       if (rev === this.clientRevision) {
         this.fail(e);
@@ -397,13 +400,34 @@ export class AppStore {
   }
   async openConversation(id: string) {
     const api = this.api;
-    if (!api) return;
     this.backToChats();
+    this.openingConversation = id;
     const rev = this.conversationRevision,
       device = this.state.device;
     if (!device) return;
-    let selected = this.state.sessions.find((s) => s.id === id);
+    let saved;
+    try {
+      saved = await this.persistence.read(device.id, id);
+    } catch (error) {
+      if (rev === this.conversationRevision) this.fail(error);
+      return;
+    }
+    if (rev !== this.conversationRevision) return;
+    let selected =
+      this.state.sessions.find((s) => s.id === id) ?? saved.session;
+    // Legacy caches did not include a title/location. Their history and draft
+    // are still useful offline; a later successful refresh supplies metadata.
+    if (!selected && (saved.messages?.length || saved.draft || saved.pending))
+      selected = {
+        id,
+        title: "Conversation",
+        project: "",
+        directory: "",
+        updated: 0,
+        status: "idle",
+      };
     if (!selected) {
+      if (!api) return;
       try {
         selected = session(
           record(
@@ -440,7 +464,6 @@ export class AppStore {
       messageCursor: undefined,
     });
     try {
-      const saved = await this.persistence.read(device.id, id);
       if (rev !== this.conversationRevision) return;
       this.projection.hydrate(saved.messages ?? []);
       this.sequence = saved.sequence ?? 0;
@@ -465,6 +488,7 @@ export class AppStore {
     }
   }
   backToChats() {
+    this.openingConversation = undefined;
     this.conversationRevision++;
     this.conversation.abort();
     this.streams.abort();
@@ -483,6 +507,10 @@ export class AppStore {
       sending: false,
       busy: false,
     });
+  }
+  closeConversation(id: string) {
+    if (this.state.selected?.id === id || this.openingConversation === id)
+      this.backToChats();
   }
   private context(rev: number) {
     return (
@@ -522,6 +550,7 @@ export class AppStore {
         selected.id,
         [...page.data].reverse(),
         this.seenSequence,
+        selected,
       );
   }
   async loadOlderMessages() {

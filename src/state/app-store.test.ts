@@ -403,3 +403,36 @@ test("a lost live stream cannot abort an in-flight prompt request", async () => 
     store.dispose();
   }
 });
+test("restoring saved computers finishes before remote health so cold start is not blocked by the network", async () => {
+  const { store, persistence, api } = setup();
+  await persistence.db.set("devices", JSON.stringify([device]));
+  const original = api.request;
+  api.request = async (...args) => {
+    if (args[1].endsWith("/health"))
+      await new Promise((_resolve, reject) => {
+        args[2]?.signal?.addEventListener(
+          "abort",
+          () => reject(new Error("aborted")),
+          { once: true },
+        );
+      });
+    return original(...args);
+  };
+  let finished = false;
+  const restoring = store.restore().then(() => {
+    finished = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(finished).toBe(true);
+    expect(store.getSnapshot()).toMatchObject({
+      ready: true,
+      online: false,
+      busy: true,
+      device,
+    });
+  } finally {
+    store.dispose();
+    await restoring;
+  }
+});

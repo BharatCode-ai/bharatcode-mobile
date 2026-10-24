@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Linking, ScrollView, View } from "react-native";
 import Markdown from "react-native-markdown-display";
 import * as Clipboard from "expo-clipboard";
@@ -110,7 +110,11 @@ const markdownStyles = {
   hr: { backgroundColor: C.border },
   bullet_list_icon: { color: C.muted },
 };
-export function Message({ message }: { message: ChatMessage }) {
+export const Message = memo(function Message({
+  message,
+}: {
+  message: ChatMessage;
+}) {
   const [copied, setCopied] = useState(false);
   if (message.role === "user")
     return (
@@ -185,4 +189,4 @@ export function Message({ message }: { message: ChatMessage }) {
       ))}
     </View>
   );
-}
+});

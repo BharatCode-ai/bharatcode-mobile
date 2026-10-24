@@ -122,15 +122,22 @@ export async function createDesktopAPI({ request, storePath }) {
         state.admissions[key]={hash,state:'forwarding',selection}; await save()
         let confirmed = false
         try {
-          await request(located(`/session/${id}/prompt_async`,info.directory),'POST',{
+          let submissionError
+          // The compatibility engine may keep its async HTTP response open
+          // after storing the message. Durable identity is the admission proof.
+          const submission = request(located(`/session/${id}/prompt_async`,info.directory),'POST',{
             messageID:body.id, agent:selection?.agent ?? info.agent,
             ...(model ? {model:{providerID:model.providerID,modelID:model.id},variant:model.variant} : {}),
             parts:[{type:'text',text:body.prompt.text}],
-          },signal)
+          },signal).catch(error => { submissionError = error })
           for (let attempt = 0; attempt < 30; attempt++) {
             if (await stored(id, body, info.directory, signal)) { confirmed = true; break }
+            if (submissionError) throw submissionError
             await delay(100, undefined, { signal })
           }
+          // Keep the rejection handler attached even when stored admission
+          // lets this response finish before the upstream request does.
+          void submission
         } catch (error) {
           // The engine can store and execute the message before its HTTP
           // acknowledgement or admission probe fails. Confirm it without ever

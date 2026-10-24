@@ -1,71 +1,41 @@
-# Expo mobile verification
+# Expo mobile implementation and verification
 
-Implementation date: 24 October 2026. Baseline: Flutter repository `3b1b073`; replacement branch `codex/expo-mobile`.
+Implementation date: 24 October 2026. The Expo/React Native/TypeScript client replaces the former Flutter mobile app. Git history retains the previous client. The Desktop connector and Desktop integration remain in the repository.
 
-## Source implementation
+## Product boundaries
 
-Expo/React Native/TypeScript is the sole mobile client. Flutter source, tests, native templates, pubspec, and active CI commands are removed. Git retains the previous client. Existing `desktop-connector/` and `desktop-integration/` source/contracts are retained.
+The only real mobile connection is through the hosted OpenTunnel service to the existing Desktop connector and existing Desktop sidecar. Mobile does not create a second agent, a BharatCode-managed relay, a user account, LAN discovery, or a manual host URL. Desktop remains the owner of provider credentials, repositories, tools, project data, and execution.
 
-Fresh pairing is explicitly approved. Desktop chats remain server-owned. No automatic import of local Flutter drafts or secure-storage records is claimed.
+Phone pairing is explicitly approved in Desktop. Desktop chats remain server-owned. Drafts and uncertain-send request identities are stored on the phone; Flutter drafts and credentials are not migrated automatically. An offline draft is not silently submitted.
 
-## Local source results
+The mobile client provides chat search and paging, streamed replies, tool activity, Markdown/code rendering, reading-position preservation, drafts, model/agent selection, Stop and question controls, read-only project files and diffs, and Activity. The sample client is isolated and cannot pair with Desktop.
 
-- `npm run typecheck`: passed.
-- `npm run lint`: passed.
-- `npm test -- --runInBand`: 36 tests passed across nine suites.
-- `npx expo install --check`: compatible dependencies.
-- `npx expo-doctor`: 20/20 checks passed.
-- Connector `npm test`: 31/31 passed against unchanged source.
-- Linux host-browser Python helpers: 3/3 passed.
-- Desktop integration generator using local pinned source: 2/2 passed, including repeated application.
+## Source changes and verification
 
-## Control inventory and acceptance ownership
+The final source changes address streamed-message projection and rendering work, activity discovery concurrency, transactional draft/history persistence, local-first restore and cached offline deep links, route recovery after delayed connection, same-ID admission reconciliation, Desktop compatibility event subscriptions, and bodyless HTTP 204 prompt acknowledgements. The detailed regressions and source performance measurements are in the [24 October performance audit](performance-2026-10-24.md).
 
-| Surface | Controls/behavior | Automated source coverage | Native check |
-| --- | --- | --- | --- |
-| First launch/pairing | Scan/paste, permission recovery, matching code, approve/decline, cancel/expiry, fresh secure persistence | Payload/origin validation, Add Computer routing | Paste/IPC approval passed; camera QR and visible Desktop approval click unverified |
-| Chats | Search, cursor paging, project/device selectors, refresh, new chat | Context isolation, late-page rejection | Real fixture history/search opened; full paging/project/new-chat matrix not separately recorded |
-| Conversation | History, streamed text, tool expansion, selectable Markdown/code, copy/fullscreen, reading position/jump | SSE/projection/dedup/window tests | Real reply and keyboard passed; incremental transport probe passed; full-app incremental/reading matrix incomplete |
-| Composer | Multiline, clipboard context, Send, Stop, model/agent | Durable ID/admission/failures, Stop wire contract, per-chat labels | Send/Stop passed; model/agent options loaded; selection mutation/context clipboard not separately confirmed |
-| Requests | Allow once/Deny, single/multiple/custom question answers, duplicate prevention | Decision payload, single-choice/custom interaction | Two real question answers confirmed; permission decision UI not separately exercised |
-| Files/changes | Breadcrumbs, directory/file switch, diff selection, copy, wrap, binary/large/error states | Existing connector confinement tests; typed client/context guards | README file/diff read, wrap and copy passed; full binary/large/error matrix incomplete |
-| Activity | Running/attention, refresh, open relevant session | Real discovery service and stale-context protection | Active question, Stop, completed answers and return to All quiet observed |
-| Devices/preferences | Restore/switch/add/remove, identity, offline revocation notice, Dark/about | Storage isolation/removal, auth rejection | Reopen/remove passed; revocation produced 401-specific native warning; multiple-computer switch not separately exercised |
-| Recovery | Offline edits, explicit retry, process reopen, suspend/resume, Desktop restart | Outbox + queue barriers, generations, bounded events | Draft process reopen and send after Wi-Fi toggle passed; uncertain send same-ID reconciliation passed; full outage matrix incomplete |
-| Sample | Labelled, isolated in-memory client, all sample navigation | Preview initialization/service behavior | Native sample launch and browser export passed; isolated sample storage covered in source |
+Final local gates passed:
 
-## Review findings resolved in source
+- Mobile TypeScript, ESLint, and 49 tests across 10 suites.
+- Expo dependency compatibility check.
+- Expo Doctor: 20/20 checks.
+- Desktop connector suite: 35 tests.
+- Linux host-browser helpers: 3 tests.
+- Desktop integration generator: 2 tests against the available pinned Desktop source.
+- GitHub Actions runs the mobile source/dependency checks, connector suite, and Linux host-browser helper suite on pushes and pull requests.
 
-Independent review reproduced and implementation fixed: premature Add Computer redirect; cancelled debounce handle suppressing refresh; missing Desktop identity/protocol health check; stale Activity replacing search results; resume using a previous computer's session; successful health retry leaving streams aborted; draft read bypassing queued writes; execution during outbox hydration; and 401 handling omitted from supporting resource/configuration requests. Regression tests cover the safety-critical cases.
+The fresh `npm audit` and `npm audit --omit=dev` checks each reported four high-severity advisories in the installed Expo CLI/code-signing chain: `expo/node_modules/@expo/cli` → `@expo/code-signing-certificates` → `node-forge` at or below 1.4.0 (GHSA-86w9-cpqp-85rv). The production-only audit still includes this Expo package dependency; it does not establish that the affected CLI tooling ships in the embedded Android app bundle. The offered automatic Expo fix is a major downgrade to Expo 44, so the qualified dependency tree was not changed as part of this release. This audit result is separate from the passing source gates.
 
-## Native qualification
+The mobile tests cover protocol validation, bounded SSE parsing and projection, durable drafts and outbox behavior, request isolation, question/permission decisions, lifecycle recovery, and key UI interactions. Passing tests establish their covered cases; they do not substitute for native acceptance.
 
-Owned exclusively by the designated `gpt-6-luna` / `max` delegate, including the early transport probe and app packaging/install.
+## Final Android release QA
 
-Early native transport probe passed using the actual TypeScript API client with Expo Fetch on Android API 35: incremental fragmented Unicode SSE, AbortController reader release, and authenticated redirect rejection. The redirect target received zero requests. Native timeout checks also passed: header inactivity rejected at 20,020 ms, body inactivity at 21,001 ms, and SSE inactivity at 46,000 ms (native scheduling included). The probe used a separate package and synthetic credential; this does not establish the full app/Desktop flow.
+The Android release variant was built from the finalized source inputs and installed under the isolated releaseqa application ID on an API 35 x86_64 emulator. Hermes is embedded; the tested app ran without Metro. A real response from the existing Desktop profile visibly grew on the phone before completion, and the mobile event stream delivered 441 text deltas totaling 3,829 characters. Same-ID uncertain-send recovery admitted the stored request once without duplication.
 
-The full app was built and installed on an Android API 35 emulator under an isolated `.nativeqa` package. The original Flutter installation and its data remain intact. Native SQLite/SecureStore initialization, sample Chats/conversation, and real-mode fresh pairing screen launched successfully.
+The final run also verified cached conversation and draft restoration after a cold offline deep link, cold reopen, background/resume, settled scrolling, and the phone reconnecting after a normal Desktop profile restart. The complete metrics and limits are in the [Android release QA report](android-release-qa-2026-10-24.md).
 
-Observed against the **existing MobileDev main-process connector, hosted OpenTunnel, and existing Desktop-owned sidecar/data**:
+The APK used a local Android debug certificate and is a QA artifact, not a distribution build. It is not committed or published. The final APK was tested only on the emulator.
 
-- Fresh paste pairing passed. Actual phone/Desktop confirmation was compared in memory before approval through existing Desktop IPC. The visible Desktop approval UI click remains unverified.
-- A real prompt/reply passed. The first send exposed shared cancellation between event streams and prompt requests. A failing source regression reproduced it; separate stream cancellation fixed it. Native same-ID retry reconciled admission, cleared the pending prompt/draft, displayed the synthetic Desktop reply, and left the Desktop prompt present exactly once.
-- The native composer originally sat behind Android's keyboard. Explicit resize and keyboard avoidance fixed this: Send/Stop remain above the IME, and tapping Send with the keyboard open submitted the prompt.
-- Native question sheets opened from the real conversation footer. Selecting the safe Cancel option and tapping Send answer completed two pending questions; Desktop confirmed nothing ran or changed.
-- Native Stop cancelled an active isolated task. Desktop reported Aborted. After resolving pending questions, Activity returned to All quiet.
-- Files listed the isolated project, opened its README, toggled line wrapping, and confirmed Copy file. Working changes opened the fixture README diff, toggled wrapping, and confirmed Copy diff.
-- A synthetic unsent draft survived Android force-stop/relaunch and reopening the same conversation without clearing data.
-- Model and agent choosers loaded the actual configured Desktop options. Selection mutation is recorded separately from opening the chooser.
-- A new native send returned the expected synthetic reply after toggling AVD Wi-Fi off/on. This establishes successful sending after the toggle; a complete transport outage was not separately demonstrated.
-- Desktop revoked only the fresh QA pairing, returning to the original two devices with remote access enabled and no gateway error. The native app displayed its HTTP-401-specific authorization warning. No raw status log was retained. Native Remove computer cleared the QA app's sole local computer and returned to the welcome screen.
-- Browser sample export passed with all Router paths emitted; this does not prove real browser pairing, which is intentionally unsupported.
+## Remaining platform coverage
 
-The delegated local Android run is complete. Safe screenshots and the detailed native report are preserved in the original workspace at `.local/verification/expo-2026-10-24/native-qualification.md`. The QA build is the debug package `ai.bharatcode.bharatcode_mobile.nativeqa` (minSdk 24, targetSdk 36), using the current JavaScript through Metro. It is not an offline release artifact.
-
-Cleanup was verified by the delegate: normal MobileDev launch restored with the same profile and no temporary remote-debugging flag; ports 8767/9224 closed; only the original sidecar remains; remote access enabled with the two pre-existing devices; QA device revoked/removed; probe fixture/Metro/clipboard bridge stopped; AVD Wi-Fi enabled. The root app Metro server remains available on 8082 for development.
-
-No iOS simulator/device is available on this Linux host. Physical Android/iPhone, camera QR, signed distribution, and store delivery remain unverified. Native incremental transport delivery is proven by the isolated probe above; a completed Desktop reply alone does not establish visible incremental text in the full app.
-
-## Dependency audit
-
-The original Markdown dependencies reported known parser/linkification issues; compatible patched Markdown/linkification versions and Zod are pinned through npm overrides and exercised by source/native checks. Expo CLI's node-forge chain still reports a high-severity upstream advisory with no patched published version at implementation time. It is a Node development-tool dependency; this app does not configure EAS/OTA code signing. No claim of a clean npm audit is made.
+No physical Android handset, iOS simulator/device, camera QR scan, distribution signing, or store delivery was available for this qualification. The visible Desktop Settings approval click was not independently exercised; the fresh phone/Desktop confirmation was verified in memory and the request was approved through the existing Desktop IPC. The emulator's software renderer does not qualify hardware-GPU smoothness.
