@@ -1,0 +1,53 @@
+import { StyleSheet } from "react-native";
+export const C = {
+  canvas: "#181817",
+  surface: "#242422",
+  raised: "#2D2D29",
+  text: "#F2F0E9",
+  muted: "#B9B9B0",
+  faint: "#85857D",
+  orange: "#FF6933",
+  green: "#6DDC91",
+  red: "#FF8B81",
+  border: "#393936",
+};
+export const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: C.canvas },
+  row: { flexDirection: "row", alignItems: "center", gap: 12 },
+  body: { fontFamily: "Inter", fontSize: 16, lineHeight: 25, color: C.text },
+  muted: { fontFamily: "Inter", fontSize: 13, lineHeight: 20, color: C.muted },
+  title: {
+    fontFamily: "Inter",
+    fontSize: 24,
+    lineHeight: 32,
+    color: C.text,
+    fontWeight: "600",
+  },
+  mono: {
+    fontFamily: "JetBrainsMono",
+    fontSize: 13,
+    lineHeight: 21,
+    color: C.text,
+  },
+  panel: {
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+  },
+  input: {
+    fontFamily: "Inter",
+    fontSize: 16,
+    color: C.text,
+    padding: 14,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  content: { padding: 20, gap: 16 },
+  separator: { height: 1, backgroundColor: C.border },
+  grow: { flex: 1 },
+});

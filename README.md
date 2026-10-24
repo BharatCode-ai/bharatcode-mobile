@@ -2,82 +2,85 @@
 
 Continue your BharatCode Desktop conversations from iOS and Android. Pair with your computer through OpenTunnel, review changes, and respond to agent requests from your phone. Your computer keeps running the work.
 
-This repository contains the Flutter app, its Desktop connector, and the Desktop integration. The workspace also supports broader BharatCode development; the folder name reflects its mobile origins.
+The mobile app now uses **Expo, React Native, and TypeScript**. This is a permanent replacement of the Flutter client. The repository also contains the existing Desktop connector and Desktop integration; both keep their current contracts and execution model.
 
-## Current state
+## What the app does
 
-The development build supports QR pairing with Desktop approval, saved computers, searchable chats with pagination, streamed replies, and prompt retries. You can choose an agent or model, stop a task, answer questions, approve or deny requests, inspect working-tree diffs, and read project files.
+- Pair by Desktop QR or pasted pairing payload, with a matching code and explicit Desktop approval.
+- Save, switch, add, and remove computers; revoke the phone credential when Desktop is reachable.
+- Search and page through chats, filter projects, create chats, and continue existing conversations.
+- Read streamed replies, Markdown/code and tool activity; copy text, preserve reading position, and jump to the latest reply.
+- Draft messages, paste clipboard context, select Desktop models/agents, send, retry uncertain delivery safely, and stop running work.
+- Answer questions and allow or deny agent requests using the same Desktop session.
+- Browse read-only project files and working-tree diffs, with wrap/copy and explicit binary/large-file states.
+- View actual running work and requests in Activity, and explore a clearly labelled sample workspace.
 
-Drafts and recently confirmed messages survive reopening. When the app reconnects, it checks Desktop for the latest state.
+Drafts and pending message identities are persisted transactionally on the phone. Reconnecting refreshes authoritative Desktop state. An offline draft is never silently submitted. Provider credentials, repositories, tools, and execution stay on Desktop.
 
-The interface uses a warm, dark theme. To try it with sample data, choose **Explore a sample workspace** or launch with the preview flag below.
+The selected [conversation design](docs/design/assets/selected-conversation.png) remains the visual authority: warm charcoal surfaces, BharatCode orange, Inter, and JetBrains Mono. [Screen and interaction reference](docs/design/SCREEN-EXPERIENCES.md) describes the broader design; unsupported future capabilities are not automatically included. Attachments currently mean clipboard text/file references, not binary uploads. Background notifications and terminal support are not enabled.
 
-Use a Desktop build with the mobile integration described below. The published Desktop beta does not include mobile access. The connector uses Desktop’s existing server and compatibility API for message history and execution.
+## Connection and migration
 
-- [Screen and interaction reference](docs/design/SCREEN-EXPERIENCES.md)
-- [Selected visual target](docs/design/assets/selected-conversation.png)
+The only real connection path is:
 
-Compatible server contracts are based on [BharatCode Desktop](https://github.com/BharatCode-ai/bharatcode-desktop), `dev` at `1e97842919d87a350b38ea5fcf55f952af072e2e`.
+```text
+Native mobile app → hosted OpenTunnel → existing Desktop connector → existing Desktop sidecar
+```
 
-Connections go through the hosted OpenTunnel service. Desktop owns pairing, conversation storage, and execution. There is no separate mobile account or BC-managed relay.
+There is no separate mobile agent, account, BC-managed relay, LAN mode, or manual hostname field. Use the Desktop integration described in [desktop-integration/README.md](desktop-integration/README.md). The older published Desktop beta alone does not establish mobile support. The integration targets Desktop source `1e97842919d87a350b38ea5fcf55f952af072e2e`.
 
-## Verification status
-
-Source checks passed on 21 October 2026: Flutter analysis, **35 unit/widget tests**, and **31 connector tests**.
-
-On 20 October 2026, an Android API 35 emulator was tested through hosted OpenTunnel against the existing Desktop sidecar. The run covered pairing by pasted code with Desktop approval, conversations, streamed replies, request controls, files and diffs, Stop, draft persistence, device revocation, and reconnect.
-
-Physical Android devices, camera QR scanning, iOS, release signing, the release renderer, and Play Store/TestFlight delivery remain unverified. The tested Android artifact was a debug build. Background notifications and terminal support are outside this verified milestone.
+**Moving from Flutter requires fresh pairing.** Desktop conversations remain available after pairing. Unsent drafts stored only in Flutter are not imported into the new SQLite/SecureStore storage. Preserve any text you need before replacing an existing installation. Matching product identifiers do not guarantee an in-place update: signing and provisioning must also match. Do not uninstall or clear app data to bypass a signing mismatch.
 
 ## Development
 
-Tested with Flutter **3.47.7** and Dart **3.13.5**. Connector tests require Node.js **22 or later**. Native development also requires the Android SDK or Xcode on macOS for iOS.
-
-Clone the repository first:
+Use Node.js 22 or newer (Node 24 tested), npm, Expo SDK 58, React Native 0.88, React 19.3, and TypeScript 6. The lockfile records compatible dependencies.
 
 ```sh
-git clone https://github.com/BharatCode-ai/bharatcode-mobile.git
-cd bharatcode-mobile
+npm ci
+npm run check
+npx expo install --check
+npx expo-doctor
 ```
+
+For a native development build, install the Android SDK or Xcode on macOS, then build and install through your normal native development workflow:
 
 ```sh
-flutter pub get
-flutter test
-flutter analyze
-flutter run
+npx expo run:android
+# On macOS with Xcode:
+npx expo run:ios
 ```
 
-To inspect the interface with clearly labelled sample data:
+Once the development build is installed:
 
 ```sh
-flutter run -d web-server --web-port 5177 --dart-define=BC_PREVIEW=true
+npm start
 ```
 
-The browser target is for previewing the interface. Connect to Desktop from the native iOS/Android app; the gateway rejects browser-origin traffic.
+No EAS account or cloud build service is required. Native project directories are generated from `app.config.ts`; Flutter native templates have been removed. Do not use the old Flutter build commands. For this workspace, packaging, installation, and qualification are performed by the designated release delegate.
+
+To explore the sample interface in a browser:
+
+```sh
+npm run web
+```
+
+Web always uses an in-memory sample client and never initializes native credentials or SQLite. It cannot pair with Desktop: the unchanged connector rejects browser-origin requests. `EXPO_PUBLIC_BC_PREVIEW=1` also selects sample mode in a development native bundle; omit it for real pairing. Expo Go/sample screenshots do not prove native storage, camera, or networking behavior.
+
+## Source and native verification
+
+See the [verification record](docs/verification/expo-mobile.md) for commands, observed results, and native platform limitations. Client tests cover protocol validation, bounded streaming, draft/outbox safety, stale request isolation, requests, and key UI interactions. They are separate from native acceptance through the hosted tunnel.
+
+The unchanged connector and Desktop helper gates are:
 
 ```sh
 cd desktop-connector
 npm ci
 npm test
+cd ..
+python3 -m unittest discover -s desktop-integration/linux-host-browser -p 'test_*.py'
+BHARATCODE_DESKTOP_SOURCE=/path/to/desktop python3 -m unittest discover -s desktop-integration -p 'test_apply.py'
 ```
 
-See [Desktop integration](desktop-integration/README.md) to add the connector and **Mobile devices** settings to the pinned Desktop source. A local connector test pass is separate from a real phone/relay/Desktop acceptance test.
+The real native acceptance workflow uses an isolated Desktop project and exercises pairing/approval, chat/send/stream, Stop, questions/permissions, models/agents, search/pages/projects, files/diffs, restart/reconnect/drafts, and revoke/old-token rejection. Camera QR, physical Android, iOS, signing, and store delivery are recorded separately. Do not assume a debug emulator pass establishes those results.
 
-The native integration test requires an already paired Android device and a Desktop conversation titled `BC Mobile qualification baseline` in a directory ending in `/mobile-qualification-project`. It sends real prompts in that isolated project. The optional controls check asks the model a question, approves a `printf` command, and reads `README.md`.
-
-```sh
-flutter test integration_test/paired_desktop_test.dart -d <device-id> --no-uninstall --dart-define=BC_E2E_CONTROLS=true
-```
-
-Keep `--no-uninstall`, because Flutter’s default test cleanup removes the app and its saved pairing. After testing, reinstall the normal app with an update that preserves app data. The integration runner uses a separate entry point. A passing run covers only the device and Desktop used for that test.
-
-The other native test targets cover:
-
-- `paired_navigation_test.dart`: search, projects, models, agents, files, clipboard, working diffs, and new chats. Prepare a tracked `README.md` change containing `BC_NATIVE_DIFF_OK` in the fixture. The test leaves a known draft; run it again with `--dart-define=BC_E2E_VERIFY_RESTART_DRAFT=true` after restarting the device to verify and clear that draft.
-- `paired_stop_test.dart`: send one fixture prompt, tap Stop while Desktop reports it running, and verify that execution becomes idle.
-- `paired_device_test.dart`: remove the computer through the UI and verify that its old credential receives HTTP 401. This revokes the test phone's pairing; pair again afterward.
-- `pairing_test.dart`: enter a short-lived pairing payload from an app-private file, wait for matching Desktop approval, and verify secure persistence. See the test's setup comment; never put pairing payloads in command-line defines.
-
-Android debug builds disable Impeller to match the renderer qualified on the development emulator, including launches from the app icon. Release builds retain Flutter's default renderer and need their own device qualification. The native commands also accept `--no-enable-impeller`; the shared `test_driver/integration_test.dart` supports `flutter drive` with rendering overrides. Record the rendering configuration alongside native test results.
-
-The BharatCode mark comes from the Desktop project. Inter and JetBrains Mono are bundled with their font license notices in `assets/fonts`.
+The BharatCode mark comes from Desktop. Bundled font licenses are in `assets/fonts/`.

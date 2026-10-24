@@ -1,0 +1,17 @@
+# Build with EXPO_PUBLIC_BC_PREVIEW=1. This flow is sample-only, never live acceptance.
+appId: ai.bharatcode.bharatcode_mobile
+---
+- launchApp
+- assertVisible: "Chats"
+- tapOn: "Fix checkout validation"
+- assertVisible: "Message BharatCode…"
+- tapOn: "Message BharatCode…"
+- inputText: "Sample only"
+- tapOn:
+    text: "Send message"
+- assertVisible: "This is a sample workspace.*"
+- tapOn: "View working changes"
+- assertVisible: "Working changes"
+- back
+- tapOn: "Files"
+- assertVisible: "Project files"

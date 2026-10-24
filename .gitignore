@@ -33,3 +33,10 @@ GEMINI.md
 *.ipa
 *.p12
 *.mobileprovision
+
+# Expo generated files
+.expo/
+dist/
+expo-env.d.ts
+android/
+ios/
