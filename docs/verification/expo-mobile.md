@@ -12,7 +12,7 @@ Fresh pairing is explicitly approved. Desktop chats remain server-owned. No auto
 
 - `npm run typecheck`: passed.
 - `npm run lint`: passed.
-- `npm test -- --runInBand`: 33 tests passed across eight suites.
+- `npm test -- --runInBand`: 35 tests passed across nine suites.
 - `npx expo install --check`: compatible dependencies.
 - `npx expo-doctor`: 20/20 checks passed.
 - Connector `npm test`: 31/31 passed against unchanged source.

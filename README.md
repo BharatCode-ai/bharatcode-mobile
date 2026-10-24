@@ -2,7 +2,7 @@
 
 Continue your BharatCode Desktop conversations from iOS and Android. Pair with your computer through OpenTunnel, review changes, and respond to agent requests from your phone. Your computer keeps running the work.
 
-The mobile app now uses **Expo, React Native, and TypeScript**. This is a permanent replacement of the Flutter client. The repository also contains the existing Desktop connector and Desktop integration; both keep their current contracts and execution model.
+The mobile app now uses **Expo, React Native, and TypeScript**. This is a permanent replacement of the Flutter client. The repository also contains the existing Desktop connector and Desktop integration; both keep their current contracts and execution model. This workspace also supports broader BharatCode development; the folder name reflects its mobile origins.
 
 ## What the app does
 
@@ -33,7 +33,7 @@ There is no separate mobile agent, account, BC-managed relay, LAN mode, or manua
 
 ## Development
 
-Use Node.js 22 or newer (Node 24 tested), npm, Expo SDK 58, React Native 0.88, React 19.3, and TypeScript 6. The lockfile records compatible dependencies.
+Use Node.js 22.13+, 24.3+, or 26+ (Node 24.19 tested), npm, Expo SDK 58, React Native 0.88, React 19.3, and TypeScript 6. The lockfile records compatible dependencies.
 
 ```sh
 npm ci

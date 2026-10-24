@@ -24,7 +24,8 @@ const assistant =
 export function previewAPI(): API {
   const messages: Record<string, Json[]> = {};
   let permission = true,
-    question = true;
+    question = true,
+    running = true;
   return {
     async request<T>(
       method: string,
@@ -47,8 +48,11 @@ export function previewAPI(): API {
         result = { data: item };
       } else if (path === "/api/session") result = { data: sessions };
       else if (path.endsWith("/active"))
-        result = { data: { ses_checkout: {} } };
-      else if (path.endsWith("/prompt")) {
+        result = { data: running ? { ses_checkout: {} } : {} };
+      else if (path.endsWith("/interrupt")) {
+        running = false;
+        result = {};
+      } else if (path.endsWith("/prompt")) {
         messages[sid] ??= [];
         messages[sid].push(
           { id: body?.id, type: "user", text: (body?.prompt as Json)?.text },
@@ -112,43 +116,46 @@ export function previewAPI(): API {
         path === "/api/permission/request"
       )
         result = {
-          data: permission
-            ? [
-                {
-                  id: "per_sample",
-                  sessionID: "ses_auth",
-                  action: "run the regression tests",
-                  resources: ["npm test -- auth.test.ts"],
-                },
-              ]
-            : [],
+          data:
+            permission &&
+            (path === "/api/permission/request" || sid === "ses_auth")
+              ? [
+                  {
+                    id: "per_sample",
+                    sessionID: "ses_auth",
+                    action: "run the regression tests",
+                    resources: ["npm test -- auth.test.ts"],
+                  },
+                ]
+              : [],
         };
       else if (path.endsWith("/question") || path === "/api/question/request")
         result = {
-          data: question
-            ? [
-                {
-                  id: "que_sample",
-                  sessionID: "ses_auth",
-                  questions: [
-                    {
-                      question: "Which validation should I prioritize?",
-                      options: [
-                        {
-                          label: "Address validation",
-                          description: "Cover optional apartment fields",
-                        },
-                        {
-                          label: "Authentication",
-                          description: "Review the sign-in flow",
-                        },
-                      ],
-                      custom: true,
-                    },
-                  ],
-                },
-              ]
-            : [],
+          data:
+            question && (path === "/api/question/request" || sid === "ses_auth")
+              ? [
+                  {
+                    id: "que_sample",
+                    sessionID: "ses_auth",
+                    questions: [
+                      {
+                        question: "Which validation should I prioritize?",
+                        options: [
+                          {
+                            label: "Address validation",
+                            description: "Cover optional apartment fields",
+                          },
+                          {
+                            label: "Authentication",
+                            description: "Review the sign-in flow",
+                          },
+                        ],
+                        custom: true,
+                      },
+                    ],
+                  },
+                ]
+              : [],
         };
       else if (path.endsWith("/changes"))
         result = {
