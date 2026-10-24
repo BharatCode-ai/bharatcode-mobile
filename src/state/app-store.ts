@@ -92,6 +92,7 @@ export class AppStore {
   private pairRevision = 0;
   private connection = new AbortController();
   private conversation = new AbortController();
+  private streams = new AbortController();
   private pairing?: API;
   private poll?: ReturnType<typeof setTimeout>;
   private retry?: ReturnType<typeof setTimeout>;
@@ -189,6 +190,7 @@ export class AppStore {
     this.conversationRevision++;
     this.connection.abort();
     this.conversation.abort();
+    this.streams.abort();
     this.connection = new AbortController();
     this.conversation = new AbortController();
     clearTimeout(this.poll);
@@ -465,6 +467,7 @@ export class AppStore {
   backToChats() {
     this.conversationRevision++;
     this.conversation.abort();
+    this.streams.abort();
     this.conversation = new AbortController();
     clearTimeout(this.refreshTimer);
     this.refreshTimer = undefined;
@@ -586,9 +589,11 @@ export class AppStore {
   }
   private subscribeEvents(rev: number) {
     const api = this.api,
-      selected = this.state.selected,
-      signal = this.conversation.signal;
+      selected = this.state.selected;
     if (!api || !selected || this.state.preview || this.suspended) return;
+    this.streams.abort();
+    this.streams = new AbortController();
+    const signal = this.streams.signal;
     const consume = async (live: boolean) => {
       try {
         for await (const event of live
@@ -615,7 +620,7 @@ export class AppStore {
   }
   private lost(rev: number, e: unknown) {
     if (!this.context(rev) || this.suspended) return;
-    this.conversation.abort();
+    this.streams.abort();
     clearTimeout(this.retry);
     if (e instanceof ApiError && e.status === 401) {
       this.fail(e);
@@ -626,7 +631,6 @@ export class AppStore {
     });
     this.retry = setTimeout(() => {
       if (!this.context(rev)) return;
-      this.conversation = new AbortController();
       void this.refreshConversation(rev)
         .then(() => {
           if (this.context(rev)) {
@@ -966,6 +970,7 @@ export class AppStore {
     this.suspended = true;
     this.conversationRevision++;
     this.conversation.abort();
+    this.streams.abort();
     clearTimeout(this.poll);
     clearTimeout(this.retry);
     clearTimeout(this.refreshTimer);

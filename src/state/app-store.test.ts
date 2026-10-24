@@ -337,9 +337,69 @@ test("cannot overwrite an uncertain outgoing identity while conversation storage
   expect(store.getSnapshot().pending?.id).toBe("msg_old");
   store.dispose();
 });
-test('successful health retry after resume restores live subscriptions and a usable request signal',async()=>{
- jest.useFakeTimers();const {store,api}=setup();let streams=0;api.liveEvents=async function*(_s,signal){streams++;await new Promise<void>(r=>signal.addEventListener('abort',()=>r(),{once:true}));};
- await store.connectDevice(device);await store.openConversation('ses_one');expect(streams).toBe(1);store.suspend();const original=api.request;let fails=true;api.request=async(...args)=>{if(args[1].endsWith('/health')&&fails){fails=false;throw new Error('Temporary outage');}return original(...args);};
- await store.resume();await jest.advanceTimersByTimeAsync(4100);expect(store.getSnapshot().online).toBe(true);expect(streams).toBe(2);store.setDraft('resume');await store.send();
- const calls=(api.request as unknown);void calls;expect(store.getSnapshot().pending).toBeUndefined();store.dispose();jest.useRealTimers();
+test("successful health retry after resume restores live subscriptions and a usable request signal", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  let streams = 0;
+  api.liveEvents = async function* (_s, signal) {
+    streams++;
+    await new Promise<void>((r) =>
+      signal.addEventListener("abort", () => r(), { once: true }),
+    );
+  };
+  await store.connectDevice(device);
+  await store.openConversation("ses_one");
+  expect(streams).toBe(1);
+  store.suspend();
+  const original = api.request;
+  let fails = true;
+  api.request = async (...args) => {
+    if (args[1].endsWith("/health") && fails) {
+      fails = false;
+      throw new Error("Temporary outage");
+    }
+    return original(...args);
+  };
+  await store.resume();
+  await jest.advanceTimersByTimeAsync(4100);
+  expect(store.getSnapshot().online).toBe(true);
+  expect(streams).toBe(2);
+  store.setDraft("resume");
+  await store.send();
+  const calls = api.request as unknown;
+  void calls;
+  expect(store.getSnapshot().pending).toBeUndefined();
+  store.dispose();
+  jest.useRealTimers();
+});
+test("a lost live stream cannot abort an in-flight prompt request", async () => {
+  const { store, api } = setup();
+  let lose!: (e: Error) => void;
+  api.liveEvents = async function* () {
+    await new Promise<void>((_resolve, reject) => (lose = reject));
+  };
+  await store.connectDevice(device);
+  await store.openConversation("ses_one");
+  store.setDraft("hello");
+  const original = api.request;
+  let release!: () => void;
+  let promptSignal: AbortSignal | undefined;
+  api.request = async (...args) => {
+    if (args[1].endsWith("/prompt")) {
+      promptSignal = args[2]?.signal;
+      await new Promise<void>((r) => (release = r));
+    }
+    return original(...args);
+  };
+  const sending = store.send();
+  await new Promise((r) => setTimeout(r, 0));
+  lose(new Error("Live stream disconnected"));
+  await new Promise((r) => setTimeout(r, 0));
+  try {
+    expect(promptSignal?.aborted).toBe(false);
+  } finally {
+    release();
+    await sending;
+    store.dispose();
+  }
 });
