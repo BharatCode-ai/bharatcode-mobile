@@ -403,6 +403,134 @@ test("a lost live stream cannot abort an in-flight prompt request", async () => 
     store.dispose();
   }
 });
+test("a burst of streamed text preserves every delta with bounded UI notifications", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  let emit!: () => void;
+  api.liveEvents = async function* (_session, signal) {
+    await new Promise<void>((resolve) => (emit = resolve));
+    for (let i = 0; i < 200; i++)
+      yield {
+        type: "session.next.text.delta",
+        data: {
+          sessionID: "ses_one",
+          assistantMessageID: "reply",
+          textID: "text",
+          delta: `${i}\n`,
+        },
+      };
+    await new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+  };
+  try {
+    await store.connectDevice(device);
+    await store.openConversation("ses_one");
+    const snapshots: string[] = [];
+    store.subscribe(() => {
+      const text = store.getSnapshot().messages.at(-1)?.text;
+      if (text) snapshots.push(text);
+    });
+    emit();
+    await jest.advanceTimersByTimeAsync(100);
+    expect(store.getSnapshot().messages.at(-1)?.text).toBe(
+      Array.from({ length: 200 }, (_, i) => `${i}\n`).join(""),
+    );
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots.length).toBeLessThanOrEqual(2);
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
+
+test("queued streamed text cannot publish into another conversation or after revocation", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  let emit!: () => void;
+  let revoke!: () => void;
+  api.liveEvents = async function* () {
+    await new Promise<void>((resolve) => (emit = resolve));
+    yield {
+      type: "session.next.text.delta",
+      data: {
+        sessionID: "ses_one",
+        assistantMessageID: "reply",
+        textID: "text",
+        delta: "private reply",
+      },
+    };
+    await new Promise<void>((_resolve, reject) => {
+      revoke = () => reject(new ApiError(401, "Pair again"));
+    });
+  };
+  try {
+    await store.connectDevice(device);
+    await store.openConversation("ses_one");
+    emit();
+    await jest.advanceTimersByTimeAsync(0);
+    store.backToChats();
+    await jest.advanceTimersByTimeAsync(100);
+    expect(store.getSnapshot().messages).toEqual([]);
+    await store.openConversation("ses_one");
+    emit();
+    await jest.advanceTimersByTimeAsync(0);
+    revoke();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(store.getSnapshot().online).toBe(false);
+    expect(store.getSnapshot().error).toBe("Pair again");
+    const messages = store.getSnapshot().messages;
+    await jest.advanceTimersByTimeAsync(100);
+    expect(store.getSnapshot().messages).toBe(messages);
+    expect(store.getSnapshot().online).toBe(false);
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
+test("durable replay text deltas still refresh history", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  const request = api.request;
+  let updated = false;
+  api.request = async (...args) =>
+    args[1].endsWith("/health")
+      ? ({
+          protocol: 1,
+          desktop: { id: device.id },
+          capabilities: { replay: true },
+        } as never)
+      : updated && args[1].endsWith("/message")
+        ? ({
+            data: [
+              { id: "replayed", type: "assistant", text: "Replayed text" },
+            ],
+          } as never)
+        : request(...args);
+  let emit!: () => void;
+  api.events = async function* (_session, _after, signal) {
+    await new Promise<void>((resolve) => (emit = resolve));
+    yield {
+      seq: 1,
+      type: "session.next.text.delta",
+      data: { sessionID: "ses_one" },
+    };
+    await new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+  };
+  try {
+    await store.connectDevice(device);
+    await store.openConversation("ses_one");
+    updated = true;
+    emit();
+    await jest.advanceTimersByTimeAsync(200);
+    expect(store.getSnapshot().messages.at(-1)?.text).toBe("Replayed text");
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
 test("restoring saved computers finishes before remote health so cold start is not blocked by the network", async () => {
   const { store, persistence, api } = setup();
   await persistence.db.set("devices", JSON.stringify([device]));

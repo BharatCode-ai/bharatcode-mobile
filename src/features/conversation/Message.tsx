@@ -175,9 +175,20 @@ export const Message = memo(function Message({
             />
           ),
           code_block: (node) => <Code key={node.key} content={node.content} />,
-          textgroup: (node, children) => (
+          textgroup: (node, children, parents) => (
             <Txt key={node.key} selectable>
-              {children}
+              {parents.every((parent) =>
+                ["paragraph", "body"].includes(parent.type),
+              ) &&
+              node.children.every((child) =>
+                ["text", "softbreak", "hardbreak"].includes(child.type),
+              )
+                ? node.children
+                    .map((child) =>
+                      child.type === "text" ? child.content : "\n",
+                    )
+                    .join("")
+                : children}
             </Txt>
           ),
         }}

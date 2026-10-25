@@ -98,6 +98,7 @@ export class AppStore {
   private poll?: ReturnType<typeof setTimeout>;
   private retry?: ReturnType<typeof setTimeout>;
   private refreshTimer?: ReturnType<typeof setTimeout>;
+  private liveTimer?: ReturnType<typeof setTimeout>;
   private searchTimer?: ReturnType<typeof setTimeout>;
   private pairTimer?: ReturnType<typeof setTimeout>;
   private refreshing = false;
@@ -143,6 +144,7 @@ export class AppStore {
     );
   }
   private fail(e: unknown) {
+    if (e instanceof ApiError && e.status === 401) this.cancelLiveUpdate();
     this.patch({
       error:
         e instanceof Error
@@ -200,6 +202,7 @@ export class AppStore {
     clearTimeout(this.retry);
     clearTimeout(this.refreshTimer);
     this.refreshTimer = undefined;
+    this.cancelLiveUpdate();
     clearTimeout(this.searchTimer);
     this.refreshing = false;
     this.refreshAgain = false;
@@ -504,6 +507,7 @@ export class AppStore {
     this.conversation = new AbortController();
     clearTimeout(this.refreshTimer);
     this.refreshTimer = undefined;
+    this.cancelLiveUpdate();
     clearTimeout(this.retry);
     this.refreshing = false;
     this.refreshAgain = false;
@@ -625,6 +629,20 @@ export class AppStore {
         });
     }, 180);
   }
+  private cancelLiveUpdate() {
+    clearTimeout(this.liveTimer);
+    this.liveTimer = undefined;
+  }
+  private queueLiveUpdate(rev: number) {
+    if (this.liveTimer) return;
+    // Preserve every delta in the projection, but let native layout and input
+    // run between Markdown renders when the stream delivers a burst of tokens.
+    this.liveTimer = setTimeout(() => {
+      this.liveTimer = undefined;
+      if (this.context(rev) && !this.suspended && this.state.online)
+        this.patch({ messages: this.projection.messages() });
+    }, 100);
+  }
   private subscribeEvents(rev: number) {
     const api = this.api,
       selected = this.state.selected;
@@ -640,12 +658,15 @@ export class AppStore {
           if (!this.context(rev) || signal.aborted) return;
           if (live) {
             if (this.projection.apply(event, selected.id))
-              this.patch({ messages: this.projection.messages() });
+              this.queueLiveUpdate(rev);
           } else {
             const seq = event.seq ?? event.durable?.seq;
             if (seq && seq > this.seenSequence) this.seenSequence = seq;
           }
-          this.queueRefresh(rev);
+          // Text deltas are already projected locally. Lifecycle/other events
+          // still reconcile the authoritative page and pending agent requests.
+          if (!live || event.type !== "session.next.text.delta")
+            this.queueRefresh(rev);
         }
         if (!signal.aborted)
           this.lost(rev, new Error("Connection interrupted"));
@@ -1015,7 +1036,7 @@ export class AppStore {
     clearTimeout(this.retry);
     clearTimeout(this.refreshTimer);
     this.refreshTimer = undefined;
-    this.refreshTimer = undefined;
+    this.cancelLiveUpdate();
     this.refreshing = false;
     if (!this.state.preview) this.patch({ online: false });
   }
