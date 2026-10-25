@@ -6,7 +6,7 @@ The mobile app now uses **Expo, React Native, and TypeScript**. This is a perman
 
 ## What the app does
 
-- Pair by Desktop QR or pasted pairing payload, with a matching code and explicit Desktop approval.
+- Pair by Desktop QR, an opened pairing link, or pasted pairing payload, with a matching code and explicit Desktop approval.
 - Save, switch, add, and remove computers; revoke the phone credential when Desktop is reachable.
 - Search and page through chats, filter projects, create chats, and continue existing conversations.
 - Read streamed replies, Markdown/code and tool activity; copy text, preserve reading position, and jump to the latest reply.
@@ -24,10 +24,16 @@ The selected [conversation design](docs/design/assets/selected-conversation.png)
 The only real connection path is:
 
 ```text
-Native mobile app → hosted OpenTunnel → existing Desktop connector → existing Desktop sidecar
+Native mobile app → tunnel.bharatcode.ai → existing Desktop connector → existing Desktop sidecar
 ```
 
-There is no separate mobile agent, account, BC-managed relay, LAN mode, or manual hostname field. Use the Desktop integration described in [desktop-integration/README.md](desktop-integration/README.md). The older published Desktop beta alone does not establish mobile support. The integration targets Desktop source `1e97842919d87a350b38ea5fcf55f952af072e2e`.
+The existing OpenTunnel client uses BharatCode’s hosted tunnel service. There is no separate mobile agent, account requirement, LAN mode, or manual hostname field. Use the Desktop integration described in [desktop-integration/README.md](desktop-integration/README.md). The older published Desktop beta alone does not establish mobile support. The integration targets Desktop source `695c2d956e6bc6f27b881a1cdbe0a7acd0764bc3`.
+
+Pairing links contain only the Desktop identity and HTTPS tunnel origin. Open **Settings → Mobile devices → Connect phone** on Desktop, scan/open the link on your phone, then approve only if the six-digit confirmation matches on both screens. Links work only during the five-minute pairing window; possessing a link never grants API access. Existing saved upstream `*.opentunnel.xyz` connections require fresh pairing with this integration.
+
+First-time HTTPS certificate issuance can take a few minutes. Desktop shows progress and allows cancellation; later connections reuse the persisted identity and certificate. Turning off remote access disconnects the tunnel and prevents automatic startup. Revoke individual phones separately, or revoke all phones and reset the tunnel when retiring its identity.
+
+See [the application trust boundary](docs/security/tunnel-trust-boundary.md) for authentication, credential storage, and the loopback proxy boundary. The transport’s TLS terminates inside Desktop; the relay carries encrypted application traffic.
 
 ## Desktop connector compatibility
 
@@ -72,7 +78,7 @@ Web always uses an in-memory sample client and never initializes native credenti
 
 ## Source and native verification
 
-See the [verification record](docs/verification/expo-mobile.md) for source gates, the node-forge security backport, and platform limits; the [Android release QA report](docs/verification/android-release-qa-2026-10-24.md) for the emulator qualification; and the [performance audit](docs/verification/performance-2026-10-24.md) for source-level measurements. Final source gates passed 49 mobile tests, 15 security regressions, TypeScript and lint, 35 connector tests, and five helper tests. Full and production-only npm audits report no known advisories for the resolved tree; the local backport and audit scope are documented separately. Source tests remain distinct from native acceptance through hosted OpenTunnel.
+See the [verification record](docs/verification/expo-mobile.md) for source gates, the node-forge security backport, and platform limits; the [Android release QA report](docs/verification/android-release-qa-2026-10-24.md) for the emulator qualification; and the [performance audit](docs/verification/performance-2026-10-24.md) for source-level measurements. For the self-hosted integration, [the current verification report](docs/verification/self-hosted-tunnel-2026-10-25.md) records 53 mobile tests, 15 security regressions, TypeScript and lint, 44 connector tests, and five helper tests. Full and production-only npm audits report no known advisories for the resolved tree; the local backport and audit scope are documented separately. Source tests remain distinct from native acceptance through hosted OpenTunnel.
 
 Run the Desktop connector and helper gates with:
 

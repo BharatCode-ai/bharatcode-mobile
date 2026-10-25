@@ -53,16 +53,18 @@ Files: desktop-integration/apply.py, desktop-integration/test_apply.py and gener
 
 ## Task 4: Qualification and delivery
 
-- [ ] Hand concrete implementation and source results to mandated qualification delegate.
-- [ ] Delegate tests live HTTPS pairing, authenticated requests/streaming, negative auth/Host/cookie boundaries, reconnect, isolated Desktop restart and revocation; report any unavailable native/physical verification.
-- [ ] Record exact evidence and limitations, review diffs for secrets/unrelated changes.
+- [x] Hand concrete implementation and source results to mandated qualification delegate.
+- [x] Delegate tests live HTTPS pairing, authenticated requests/streaming, negative auth/Host/cookie boundaries, reconnect, isolated Desktop restart and revocation; report any unavailable native/physical verification.
+- [x] Record exact evidence and limitations, review diffs for secrets/unrelated changes.
 - [ ] Commit and push focused branches; create and attach separate Desktop and Mobile PRs. No merge or release publication.
 
 ## Execution record
 
 - Primary implemented the connector, Mobile link/transport changes and current Desktop integration; the user authorized implementation and push after verification.
-- Source baselines passed 49 Mobile and 35 connector tests. The final implementation passes 52 Mobile tests, 15 security regressions, and 44 connector tests, plus Mobile lint/typecheck, Desktop/app typechecks, 168 Desktop tests, two generator and three browser-helper tests.
+- Source baselines passed 49 Mobile and 35 connector tests. The final implementation passes 53 Mobile tests, 15 security regressions, and 44 connector tests, plus Mobile lint/typecheck, Desktop/app typechecks, 168 Desktop tests, two generator and three browser-helper tests.
 - Independent review: no actionable auth bypass; reset could await unfinished issuance, and phone-initiated unpair left a stale Desktop list. Both were reproduced then fixed with regressions. The stale-list issue was treated as functional correctness because a revoked phone must not remain presented as paired.
 - Migration regression: a dedicated service identity directory prevents replaying upstream credentials to the self-hosted API.
 - Existing app-suite failure reproduced on clean Desktop base: 748 pass, one i18n parity failure for four unrelated ui.message.outputLimit keys. Keep this visible in verification/PR evidence; do not change UI/session copy or suppress the test.
 - Shared English fallback follows the existing BharatCode locale mechanism; additional languages require reviewed translations.
+
+- Final hosted/native qualification: first issuance and certificate reuse, real-sidecar stream revocation, actual Electron restart with identical persistent identity, Android emulator saved-credential restart/network recovery and revoked UI. Visible signed-in Desktop settings, physical camera/iOS and native incremental text rendering remain separate, unverified tiers.
