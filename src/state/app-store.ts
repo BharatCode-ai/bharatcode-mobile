@@ -885,7 +885,9 @@ export class AppStore {
       this.pairing = api;
       const claim = await api.request<Json>("POST", "/mobile/v1/claim", {
         body: {
-          code: payload.code,
+          ...(payload.code
+            ? { code: payload.code }
+            : { desktopID: payload.desktopID }),
           deviceName: this.deps.deviceName ?? "Phone",
         },
       });

@@ -11,6 +11,7 @@ async function setup(t, options = {}) {
   let admittedAt = Infinity
   const upstream = createServer((req, res) => {
     seen.push({ url: req.url, method: req.method, headers: req.headers })
+    res.setHeader('set-cookie', 'bc_test=sidecar-private; Domain=.bharatcode.ai; Secure; HttpOnly')
     if (options.asyncAdmission && req.url.startsWith('/session/ses_one/prompt_async?')) {
       req.resume()
       admittedAt = Date.now() + 250
@@ -75,7 +76,7 @@ async function setup(t, options = {}) {
     body: JSON.stringify(body),
   })
   async function pair() {
-    const qr = gateway.issuePairing('https://api.unit.opentunnel.xyz')
+    const qr = gateway.issuePairing('https://api.unit.tunnel.bharatcode.ai')
     const response = await post('/mobile/v1/claim', { code: qr.code, deviceName: 'Test phone' })
     assert.equal(response.status, 201)
     const claim = await response.json()
@@ -88,7 +89,7 @@ async function setup(t, options = {}) {
 
 test('scan needs explicit desktop approval, and one-use code cannot be claimed twice', async t => {
   const c = await setup(t)
-  const qr = c.gateway.issuePairing('https://api.unit.opentunnel.xyz')
+  const qr = c.gateway.issuePairing('https://api.unit.tunnel.bharatcode.ai')
   const responses = await Promise.all([1, 2].map(() => c.post('/mobile/v1/claim', { code: qr.code, deviceName: 'Phone' })))
   assert.deepEqual(responses.map(r => r.status).sort(), [201, 401])
   const claim = await responses.find(r => r.status === 201).json()
@@ -104,10 +105,10 @@ test('scan needs explicit desktop approval, and one-use code cannot be claimed t
 
 test('expired pairing codes and pending approvals cannot issue a credential', async t => {
   const c = await setup(t)
-  const qr = c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  const qr = c.gateway.issuePairing('https://unit.tunnel.bharatcode.ai')
   c.expire()
   assert.equal((await c.post('/mobile/v1/claim', { code: qr.code, deviceName: 'Phone' })).status, 401)
-  const next = c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  const next = c.gateway.issuePairing('https://unit.tunnel.bharatcode.ai')
   const claim = await (await c.post('/mobile/v1/claim', { code: next.code, deviceName: 'Phone' })).json()
   c.expire()
   await assert.rejects(c.gateway.approve(claim.claimID), /expired/)
@@ -116,17 +117,17 @@ test('expired pairing codes and pending approvals cannot issue a credential', as
 
 test('only HTTPS OpenTunnel origins can be issued and issuing a new QR invalidates the old one', async t => {
   const c = await setup(t)
-  for (const url of ['http://unit.opentunnel.xyz', 'https://evil.example', 'https://unit.opentunnel.xyz/path', 'https://user:pass@unit.opentunnel.xyz']) {
+  for (const url of ['http://unit.tunnel.bharatcode.ai', 'https://evil.example', 'https://unit.tunnel.bharatcode.ai/path', 'https://user:pass@unit.tunnel.bharatcode.ai']) {
     assert.throws(() => c.gateway.issuePairing(url))
   }
-  const old = c.gateway.issuePairing('https://unit.opentunnel.xyz')
-  c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  const old = c.gateway.issuePairing('https://unit.tunnel.bharatcode.ai')
+  c.gateway.issuePairing('https://unit.tunnel.bharatcode.ai')
   assert.equal((await c.post('/mobile/v1/claim', { code: old.code, deviceName: 'Phone' })).status, 401)
 })
 
 test('denied claim cannot be approved and a wrong claim secret cannot poll', async t => {
   const c = await setup(t)
-  const qr = c.gateway.issuePairing('https://unit.opentunnel.xyz')
+  const qr = c.gateway.issuePairing('https://unit.tunnel.bharatcode.ai')
   const claim = await (await c.post('/mobile/v1/claim', { code: qr.code, deviceName: 'Phone' })).json()
   assert.equal((await c.post('/mobile/v1/claim/status', { ...claim, claimSecret: 'wrong' })).status, 401)
   c.gateway.decline(claim.claimID)
@@ -138,11 +139,13 @@ test('device credential proxies only allowed routes and never leaks master crede
   const c = await setup(t)
   assert.equal((await fetch(c.origin + '/api/session')).status, 401)
   const { token } = await c.pair()
-  const response = await fetch(c.origin + '/api/session?limit=30', { headers: { authorization: `Bearer ${token}`, 'x-forwarded-host': 'evil.example' } })
+  const response = await fetch(c.origin + '/api/session?limit=30', { headers: { authorization: `Bearer ${token}`, 'x-forwarded-host': 'evil.example', cookie: 'bc_test=browser-private' } })
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { data: [], cursor: {} })
   assert.equal(c.seen[0].headers.authorization, 'Basic ' + Buffer.from('opencode:private-sidecar-secret').toString('base64'))
   assert.equal(c.seen[0].headers['x-forwarded-host'], undefined)
+  assert.equal(c.seen[0].headers.cookie, undefined)
+  assert.equal(response.headers.get('set-cookie'), null)
   const metadata = await (await fetch(c.origin + '/mobile/v1/health', { headers: { authorization: `Bearer ${token}` } })).text()
   assert.ok(!metadata.includes('private-sidecar-secret'))
   for (const path of ['/api/credential', '/api/config', '/api/integration', '/api/session/abc/permission', '/api/fs/file?path=/etc/passwd', '/api/session/abc%2F..%2Fcredential']) {
@@ -292,4 +295,38 @@ test('Desktop accepts a real bodyless 204 async acknowledgement before delayed s
   const response = await c.post('/api/session/ses_one/prompt', { id: 'msg_async', prompt: { text: 'One request' } }, token)
   assert.equal(response.status, 200)
   assert.equal(c.seen.filter(item => item.url.includes('/prompt_async')).length, 1)
+})
+
+test('public link requires an active pairing window and explicit approval; localhost headers never authorize', async t => {
+  const c = await setup(t)
+  const qr = c.gateway.issuePairing('https://pc.tunnel.bharatcode.ai')
+  const response = await c.post('/mobile/v1/claim', { desktopID: qr.desktopID, deviceName: 'Link phone' })
+  assert.equal(response.status, 201)
+  const claim = await response.json()
+  assert.equal((await (await c.post('/mobile/v1/claim/status', claim)).json()).state, 'waiting')
+  for (const headers of [{host:'localhost'}, {'x-forwarded-for':'127.0.0.1','x-forwarded-host':'localhost','forwarded':'for=127.0.0.1;host=localhost'}, {authorization:'Bearer ' + 'x'.repeat(43)}]) {
+    assert.equal((await fetch(c.origin + '/api/session', {headers})).status, 401)
+    assert.equal((await fetch(c.origin + '/mobile/v1/health', {headers})).status, 401)
+  }
+  assert.equal(c.seen.length, 0)
+  await c.gateway.approve(claim.claimID)
+  const paired = await (await c.post('/mobile/v1/claim/status', claim)).json()
+  assert.equal((await fetch(c.origin + '/mobile/v1/health', {headers:{authorization:'Bearer '+paired.token}})).status, 200)
+  assert.equal((await c.post('/mobile/v1/claim', {desktopID:qr.desktopID,deviceName:'Late phone'})).status, 401)
+  await c.gateway.revoke(paired.device.id)
+  assert.equal((await fetch(c.origin + '/mobile/v1/health', {headers:{authorization:'Bearer '+paired.token}})).status, 401)
+})
+
+test('public link claims are bounded, expire, and a refreshed invitation invalidates older pending claims', async t => {
+  const c = await setup(t)
+  const qr = c.gateway.issuePairing('https://pc.tunnel.bharatcode.ai')
+  const body = {desktopID:qr.desktopID,deviceName:'Phone'}
+  assert.equal((await c.post('/mobile/v1/claim', {...body, desktopID:'pc_wrong'})).status, 401)
+  const first = await (await c.post('/mobile/v1/claim', body)).json()
+  for(let n=1;n<5;n++) assert.equal((await c.post('/mobile/v1/claim', body)).status, 201)
+  assert.equal((await c.post('/mobile/v1/claim', body)).status, 429)
+  c.gateway.issuePairing('https://pc.tunnel.bharatcode.ai')
+  await assert.rejects(c.gateway.approve(first.claimID))
+  c.expire()
+  assert.equal((await c.post('/mobile/v1/claim', body)).status, 401)
 })

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Linking, ScrollView, TextInput, View, Platform } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
+import { useURL } from "expo-linking";
 import {
   Brand,
   Button,
@@ -20,6 +21,18 @@ export default function PairingScreen() {
   const router = useRouter();
   const initialDevice = useRef(state.device);
   const scanned = useRef(false);
+  const incoming = useURL();
+  const opened = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !incoming?.startsWith("bharatcode://pair") ||
+      incoming === opened.current ||
+      Platform.OS === "web"
+    )
+      return;
+    opened.current = incoming;
+    void store.pair(incoming);
+  }, [incoming, store]);
   useEffect(() => () => store.cancelPairing(), [store]);
   const [scan, setScan] = useState(false),
     [help, setHelp] = useState(false),

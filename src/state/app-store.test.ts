@@ -9,7 +9,7 @@ const device: DesktopDevice = {
   id: "pc_one",
   name: "Computer",
   platform: "Linux",
-  origin: "https://pc.opentunnel.xyz",
+  origin: "https://pc.tunnel.bharatcode.ai",
   credentialID: "dev_one",
 };
 function setup() {
@@ -435,4 +435,29 @@ test("restoring saved computers finishes before remote health so cold start is n
     store.dispose();
     await restoring;
   }
+});
+
+test("a public pairing link submits identity by POST and waits for Desktop approval", async () => {
+  const { store, api } = setup();
+  const request = api.request;
+  api.request = jest.fn(async (...args: Parameters<API["request"]>) => {
+    if (args[1] === "/mobile/v1/claim")
+      return {
+        claimID: "claim",
+        claimSecret: "private",
+        confirmation: "123456",
+        expiresAt: Date.now() + 300000,
+      };
+    if (args[1] === "/mobile/v1/claim/status") return { state: "waiting" };
+    return request(...args);
+  }) as API["request"];
+  await store.pair(
+    "bharatcode://pair?origin=https%3A%2F%2Fpc.tunnel.bharatcode.ai&desktopID=pc_one",
+  );
+  expect(api.request).toHaveBeenCalledWith("POST", "/mobile/v1/claim", {
+    body: { desktopID: "pc_one", deviceName: "Phone" },
+  });
+  expect(store.getSnapshot().confirmation).toBe("123456");
+  expect(store.getSnapshot().devices).toEqual([]);
+  store.dispose();
 });

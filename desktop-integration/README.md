@@ -2,7 +2,7 @@
 
 The connector uses the existing authenticated BharatCode Desktop sidecar. It does not start another agent or share the sidecar's master password with the phone.
 
-The integration currently targets Desktop commit `1e97842919d87a350b38ea5fcf55f952af072e2e`.
+The integration currently targets Desktop commit `695c2d956e6bc6f27b881a1cdbe0a7acd0764bc3`.
 
 ```sh
 python desktop-integration/apply.py /path/to/bharatcode-desktop
@@ -10,13 +10,13 @@ cd /path/to/bharatcode-desktop
 bun install
 ```
 
-Run the integrated development build with its normal Desktop sidecar. This source pin embeds native `/api/session` metadata alongside its compatibility message API. The gateway follows the Desktop UI's compatibility behavior for message history, prompts, requests, configured models, and live events, so both clients use the same conversation and execution engine. Do not set `OPENCODE_SIDECAR_V2=1` for this pin: its separate CLI service branch references an unavailable command.
+Run the integrated development build with its normal, authenticated Desktop sidecar. The connector uses its existing compatibility message API and project-scoped events; it does not select a different runtime, change the account/catalog policy, or start another agent. The matching Desktop PR contains the generated source integration directly; this script keeps the Mobile repository’s connector copy reproducible against the documented pin.
 
-This adds the connector workspace package, a trusted main-frame IPC action, and **Settings → Mobile devices** in both the default Settings v2 screen and the older layout. The embedded Desktop server explicitly selects the BharatCode product catalog before loading its runtime, including in a development-branded build; the default upstream development catalog does not expose BharatCode models. The action can create a pairing QR, approve or decline a phone, revoke one phone, and disable remote access. It follows the Desktop preload boundary and uses typed localization keys.
+This adds the connector workspace package, a trusted main-frame IPC action, and **Settings → Mobile devices** in both the default Settings v2 screen and the older layout. The embedded Desktop server explicitly selects the BharatCode product catalog before loading its runtime, including in a development-branded build; the default upstream development catalog does not expose BharatCode models. The action can create a credential-free pairing link/QR, approve or decline a phone, revoke one phone, disconnect remote access, and revoke all phones/reset the tunnel. It follows the Desktop preload boundary and uses typed localization keys.
 
 The script checks the source revision and each edit context. It can be run again to refresh the connector and new UI modules. Review the resulting Desktop diff before building. Runtime tests for the connector live in `desktop-connector/test`; the Desktop package's own tests and type checks should also pass.
 
-Remote access starts only when the user chooses **Connect phone**. Once enabled, the same tunnel identity is restored at the next launch until remote access is turned off. Tunnel identity, device verifiers and the enablement preference are kept in the Desktop app's private data directory. The connector rejects browser-origin calls and exposes only its mobile API policy.
+Remote access starts only when the user chooses **Connect phone**. The SDK explicitly selects `api: "https://tunnel.bharatcode.ai"` and exposes certificate issuance and reconnect status. Issuance is cancellable and may take a few minutes. Once enabled, the same tunnel identity is restored at the next launch until remote access is turned off. Tunnel identity, device verifiers and the enablement preference are kept in the Desktop app's private data directory. The connector rejects browser-origin calls and exposes only its mobile API policy. The tunnel routes this gateway, never the sidecar or Desktop management IPC. See [the trust boundary](../docs/security/tunnel-trust-boundary.md).
 
 The already-published Desktop beta does not include this source integration. Installing that beta alone is not proof that mobile pairing is available.
 

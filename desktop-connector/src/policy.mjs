@@ -1,6 +1,6 @@
 export function tunnelOrigin(value) {
+  if (typeof value !== 'string' || !/^https:\/\/(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+tunnel\.bharatcode\.ai(?::443)?\/?$/i.test(value)) throw new Error('An HTTPS BharatCode tunnel origin is required')
   const url = new URL(value)
-  if (url.protocol !== 'https:' || !url.hostname.endsWith('.opentunnel.xyz') || url.hostname === 'opentunnel.xyz' || url.port || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('An HTTPS OpenTunnel origin is required')
   return url.origin
 }
 

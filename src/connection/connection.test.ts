@@ -2,7 +2,7 @@ import { validateOrigin, parsePairingPayload } from "./pairing-payload";
 import { decodeSse } from "./sse";
 
 const now = 1_000_000;
-const payload = (origin = "https://pc.opentunnel.xyz") =>
+const payload = (origin = "https://pc.tunnel.bharatcode.ai") =>
   JSON.stringify({
     v: 1,
     origin,
@@ -11,18 +11,24 @@ const payload = (origin = "https://pc.opentunnel.xyz") =>
     expiresAt: now + 300_000,
   });
 test("normalizes only hosted tunnel origins", () => {
-  expect(validateOrigin("https://pc.opentunnel.xyz:443/")).toBe(
-    "https://pc.opentunnel.xyz",
+  expect(validateOrigin("https://pc.tunnel.bharatcode.ai:443/")).toBe(
+    "https://pc.tunnel.bharatcode.ai",
   );
   for (const origin of [
-    "http://pc.opentunnel.xyz",
-    "https://opentunnel.xyz",
-    "https://pc.opentunnel.xyz.evil.com",
-    "https://pc.opentunnel.xyz/path",
-    "https://u:p@pc.opentunnel.xyz",
-    "https://pc.opentunnel.xyz?x=1",
-    "https://pc.opentunnel.xyz#",
-    "https://pc.opentunnel.xyz:444",
+    "http://pc.tunnel.bharatcode.ai",
+    "https://tunnel.bharatcode.ai",
+    "https://pc.opentunnel.xyz",
+    "https://pc.tunnel.bharatcode.ai\\@evil.com",
+    "https://pc..tunnel.bharatcode.ai",
+    "https://-pc.tunnel.bharatcode.ai",
+    "https://pc.tunnel.bharatcode.ai/../",
+    " https://pc.tunnel.bharatcode.ai",
+    "https://pc.tunnel.bharatcode.ai.evil.com",
+    "https://pc.tunnel.bharatcode.ai/path",
+    "https://u:p@pc.tunnel.bharatcode.ai",
+    "https://pc.tunnel.bharatcode.ai?x=1",
+    "https://pc.tunnel.bharatcode.ai#",
+    "https://pc.tunnel.bharatcode.ai:444",
   ])
     expect(() => validateOrigin(origin)).toThrow();
 });
@@ -66,4 +72,23 @@ test("rejects unbounded event frames", async () => {
       void e;
   };
   await expect(consume()).rejects.toThrow("Event exceeds");
+});
+
+test("opens only credential-free Desktop pairing links", () => {
+  const link =
+    "bharatcode://pair?origin=https%3A%2F%2Fpc.tunnel.bharatcode.ai&desktopID=pc_test";
+  expect(parsePairingPayload(link, now)).toEqual({
+    v: 1,
+    origin: "https://pc.tunnel.bharatcode.ai",
+    desktopID: "pc_test",
+  });
+  for (const value of [
+    link + "&token=secret",
+    link + "&desktopID=pc_other",
+    link + "#secret",
+    link.replace("bharatcode:", "https:"),
+    link.replace("pc_test", "evil"),
+    link.replace("pair?", "pair/path?"),
+  ])
+    expect(() => parsePairingPayload(value, now)).toThrow();
 });

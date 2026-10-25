@@ -31,12 +31,17 @@ class DesktopIntegrationTest(unittest.TestCase):
         self.assertIn('<SettingsMobile />', source)
         self.assertIn('when={platform.mobileAccess}', source)
 
-    def test_embedded_desktop_uses_bharatcode_catalog_in_dev_channel(self):
-        source = (self.target / "packages/desktop/src/main/sidecar.ts").read_text()
-        prepare = source.split('function prepareSidecarEnv(', 1)[1].split('\n}', 1)[0]
-        self.assertIn('BHARATCODE_PRODUCT_POLICY: "shipped"', prepare)
-        self.assertLess(source.index('prepareSidecarEnv(command.password'),
-                        source.index('await import("virtual:opencode-server")'))
+    def test_tunnel_is_main_owned_and_ipc_is_trusted(self):
+        main = (self.target / "packages/desktop/src/main/index.ts").read_text()
+        self.assertIn('createMobileAccess({', main)
+        self.assertIn('await mobileAccess.close()', main)
+        ipc = (self.target / "packages/desktop/src/main/ipc.ts").read_text()
+        self.assertIn('ipcMain.handle("mobile-access", accountAction(', ipc)
+        self.assertIn('event.senderFrame !== event.sender.mainFrame', ipc)
+        self.assertIn('!isOwnedRenderer(event.sender.id)', ipc)
+        renderer = (self.target / "packages/desktop/src/renderer/index.tsx").read_text()
+        self.assertIn('window.api.mobileAccess(input)', renderer)
+        self.assertNotIn('@opentunnel/client', renderer)
 
 
 if __name__ == "__main__":
