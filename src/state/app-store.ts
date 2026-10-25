@@ -266,7 +266,7 @@ export class AppStore {
       );
     }
     this.replay = record(result.capabilities).replay === true;
-    this.patch({ online: true, error: undefined });
+    this.patch({ online: true, error: undefined, notice: undefined });
     await this.refreshSessions();
     this.schedulePoll(rev);
   }
@@ -370,12 +370,21 @@ export class AppStore {
             this.state.selected,
         });
     } catch (e) {
-      if (
-        rev === this.clientRevision &&
-        e instanceof ApiError &&
-        e.status === 401
-      )
-        this.fail(e);
+      if (rev !== this.clientRevision || this.suspended || this.disposed)
+        return;
+      if (e instanceof ApiError && e.status === 401) this.fail(e);
+      else if (
+        !(e instanceof ApiError) ||
+        e.status >= 500 ||
+        e.status === 408
+      ) {
+        this.patch({
+          online: false,
+          error: undefined,
+          notice: "Desktop is offline or reconnecting. Your draft is saved.",
+        });
+        this.scheduleHealth(rev);
+      }
     }
   }
   async newChat() {

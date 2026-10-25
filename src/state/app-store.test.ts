@@ -461,3 +461,31 @@ test("a public pairing link submits identity by POST and waits for Desktop appro
   expect(store.getSnapshot().devices).toEqual([]);
   store.dispose();
 });
+
+test("idle Desktop network loss becomes offline and retries health without losing pairing", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  try {
+    await store.connectDevice(device);
+    const original = api.request;
+    let offline = true;
+    api.request = async (...args) => {
+      if (offline && args[1] === "/api/session/active")
+        throw new TypeError("Network request failed");
+      return original(...args);
+    };
+    await store.activity();
+    expect(store.getSnapshot().selected).toBeUndefined();
+    expect(store.getSnapshot().online).toBe(false);
+    expect(store.getSnapshot().notice).toContain("reconnecting");
+    expect(store.getSnapshot().device?.id).toBe("pc_one");
+    offline = false;
+    await jest.advanceTimersByTimeAsync(4100);
+    expect(store.getSnapshot().online).toBe(true);
+    expect(store.getSnapshot().notice).toBeUndefined();
+    expect(store.getSnapshot().device?.id).toBe("pc_one");
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
