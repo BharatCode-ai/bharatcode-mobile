@@ -56,7 +56,7 @@ Files: desktop-integration/apply.py, desktop-integration/test_apply.py and gener
 - [x] Hand concrete implementation and source results to mandated qualification delegate.
 - [x] Delegate tests live HTTPS pairing, authenticated requests/streaming, negative auth/Host/cookie boundaries, reconnect, isolated Desktop restart and revocation; report any unavailable native/physical verification.
 - [x] Record exact evidence and limitations, review diffs for secrets/unrelated changes.
-- [ ] Commit and push focused branches; create and attach separate Desktop and Mobile PRs. No merge or release publication.
+- [x] Commit and push focused branches; create and attach separate Desktop and Mobile PRs. No merge or release publication.
 
 ## Execution record
 
@@ -68,3 +68,5 @@ Files: desktop-integration/apply.py, desktop-integration/test_apply.py and gener
 - Shared English fallback follows the existing BharatCode locale mechanism; additional languages require reviewed translations.
 
 - Final hosted/native qualification: first issuance and certificate reuse, real-sidecar stream revocation, actual Electron restart with identical persistent identity, Android emulator saved-credential restart/network recovery and revoked UI. Visible signed-in Desktop settings, physical camera/iOS and native incremental text rendering remain separate, unverified tiers.
+
+- Delivery: [Desktop PR #60](https://github.com/BharatCode-ai/bharatcode-desktop/pull/60) targets dev from the existing arzvaak fork because organization access is read-only; [Mobile PR #1](https://github.com/BharatCode-ai/bharatcode-mobile/pull/1) targets main. Both are attached to the task. Mobile push/PR source checks passed. Desktop pre-push workspace typechecks passed; no GitHub checks were reported for that PR.
