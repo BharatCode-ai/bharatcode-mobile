@@ -17,8 +17,10 @@ class DesktopIntegrationTest(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temp.cleanup)
         cls.target = Path(cls.temp.name) / "desktop"
-        subprocess.run(["git", "clone", "--quiet", "--shared", str(SOURCE), str(cls.target)],
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout", str(SOURCE), str(cls.target)],
                        check=True, capture_output=True, text=True)
+        subprocess.run(["git", "checkout", "--quiet", "695c2d956e6bc6f27b881a1cdbe0a7acd0764bc3"],
+                       cwd=cls.target, check=True, capture_output=True, text=True)
         for _ in range(2):
             subprocess.run([sys.executable, str(ROOT / "desktop-integration/apply.py"), str(cls.target)],
                            check=True, capture_output=True, text=True)

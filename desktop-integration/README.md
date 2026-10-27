@@ -18,6 +18,8 @@ The script checks the source revision and each edit context. It can be run again
 
 Remote access starts only when the user chooses **Connect phone**. The SDK explicitly selects `api: "https://tunnel.bharatcode.ai"` and exposes certificate issuance and reconnect status. Issuance is cancellable and may take a few minutes. Once enabled, the same tunnel identity is restored at the next launch until remote access is turned off. Tunnel identity, device verifiers and the enablement preference are kept in the Desktop app's private data directory. The connector rejects browser-origin calls and exposes only its mobile API policy. The tunnel routes this gateway, never the sidecar or Desktop management IPC. See [the trust boundary](../docs/security/tunnel-trust-boundary.md).
 
+The October 27 follow-up isolates mobile storage errors from Desktop startup, cancels provisioning before Reset joins the action queue, and preserves damaged registries privately on explicit reset. It connects the native local runtime; WSL workspaces are outside the current scope. The matching Desktop source includes focused settings interaction tests and a physical-device acceptance checklist in `docs/mobile-access-acceptance.md`.
+
 The already-published Desktop beta does not include this source integration. Installing that beta alone is not proof that mobile pairing is available.
 
 ## Linux development profiles and browser handoff
