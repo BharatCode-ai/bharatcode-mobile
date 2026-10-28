@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Linking, ScrollView, TextInput, View, Platform } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { ScrollView, TextInput, View, Platform } from "react-native";
+import { normalizePairingCode } from "../../connection/pairing-code";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Brand,
@@ -19,7 +19,6 @@ export default function PairingScreen() {
   const { store, state } = useApp();
   const router = useRouter();
   const initialDevice = useRef(state.device);
-  const scanned = useRef(false);
   const { link, delivery } = useLocalSearchParams<{
     link?: string | string[];
     delivery?: string | string[];
@@ -35,12 +34,21 @@ export default function PairingScreen() {
     );
   }, [link, delivery, store]);
   useEffect(() => () => store.cancelPairing(), [store]);
-  const [scan, setScan] = useState(false),
-    [help, setHelp] = useState(false),
+  const [help, setHelp] = useState(false),
     [paste, setPaste] = useState(false),
     [payload, setPayload] = useState(""),
-    [torch, setTorch] = useState(false);
-  const [permission, requestPermission] = useCameraPermissions();
+    [code, setCode] = useState("");
+  let validCode = false;
+  try {
+    normalizePairingCode(code);
+    validCode = true;
+  } catch {}
+  const submitCode = () => {
+    if (!validCode || state.busy || Platform.OS === "web") return;
+    const submitted = code;
+    setCode("");
+    void store.pairCode(submitted);
+  };
   useEffect(() => {
     if (
       state.device &&
@@ -49,89 +57,11 @@ export default function PairingScreen() {
     )
       router.replace("/(tabs)/chats");
   }, [state.device, state.confirmation, router]);
-  const startScan = async () => {
-    if (Platform.OS === "web") return;
-    scanned.current = false;
-    setScan(true);
-    if (!permission?.granted && permission?.canAskAgain !== false)
-      await requestPermission();
-  };
   const submit = (value: string) => {
-    setScan(false);
     setPaste(false);
     setPayload("");
     void store.pair(value);
   };
-  if (scan)
-    return (
-      <Frame>
-        <Header
-          title="Scan Desktop QR"
-          left={
-            <IconButton
-              label="Close scanner"
-              icon="close"
-              onPress={() => setScan(false)}
-            />
-          }
-        />
-        {permission?.granted ? (
-          <View style={{ flex: 1 }}>
-            <CameraView
-              style={{ flex: 1 }}
-              enableTorch={torch}
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onBarcodeScanned={({ data }) => {
-                if (scanned.current) return;
-                scanned.current = true;
-                submit(data);
-              }}
-            />
-            <View
-              style={{
-                position: "absolute",
-                bottom: 40,
-                left: 20,
-                right: 20,
-                gap: 12,
-              }}
-            >
-              <View style={s.panel}>
-                <Txt>Scan the QR in Desktop → Settings → Mobile devices.</Txt>
-              </View>
-              <Button
-                title={torch ? "Flashlight off" : "Flashlight on"}
-                onPress={() => setTorch((v) => !v)}
-                icon="flashlight-outline"
-              />
-            </View>
-          </View>
-        ) : (
-          <View style={[s.content, s.grow]}>
-            <Txt>Camera access is needed to scan your Desktop pairing QR.</Txt>
-            <Button
-              title={
-                permission?.canAskAgain === false
-                  ? "Open settings"
-                  : "Allow camera"
-              }
-              onPress={() => {
-                if (permission?.canAskAgain === false)
-                  void Linking.openSettings();
-                else void requestPermission();
-              }}
-            />
-            <Button
-              title="Paste pairing code instead"
-              onPress={() => {
-                setScan(false);
-                setPaste(true);
-              }}
-            />
-          </View>
-        )}
-      </Frame>
-    );
   return (
     <Frame>
       <Header
@@ -187,15 +117,44 @@ export default function PairingScreen() {
           </View>
         ) : (
           <>
-            <Button
-              title="Scan Desktop QR"
-              primary
-              icon="qr-code-outline"
-              disabled={state.busy || Platform.OS === "web"}
-              onPress={() => void startScan()}
+            <Txt muted>
+              On Desktop, open Settings → Mobile devices and choose Generate
+              code. Enter the eight-digit code below.
+            </Txt>
+            <TextInput
+              accessibilityLabel="Eight-digit Desktop code"
+              value={code}
+              onChangeText={setCode}
+              editable={!state.busy && Platform.OS !== "web"}
+              keyboardType="number-pad"
+              inputMode="numeric"
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={24}
+              placeholder="1234 5678"
+              placeholderTextColor={C.faint}
+              returnKeyType="go"
+              onSubmitEditing={submitCode}
+              style={[
+                s.input,
+                { fontFamily: "JetBrainsMono", fontSize: 26, letterSpacing: 4 },
+              ]}
             />
             <Button
-              title="Paste pairing code"
+              title="Connect computer"
+              primary
+              disabled={!validCode || state.busy || Platform.OS === "web"}
+              onPress={submitCode}
+            />
+            {state.busy && (
+              <Button
+                title="Cancel pairing"
+                onPress={() => store.cancelPairing()}
+              />
+            )}
+            <Button
+              title="Use an older pairing link"
+              compact
               disabled={state.busy || Platform.OS === "web"}
               onPress={() => setPaste(true)}
             />
@@ -224,25 +183,25 @@ export default function PairingScreen() {
       >
         <Txt>
           Open BharatCode Desktop, go to Settings → Mobile devices, and choose
-          Connect phone.
+          Generate code.
         </Txt>
         <Txt muted>
-          Scan its QR, then approve the matching code on your computer. Keep
-          Desktop running and online. Connections use the existing hosted
-          OpenTunnel service.
+          Enter its eight-digit code, then approve the matching confirmation on
+          your computer. Keep Desktop running and online. Connections use the
+          existing hosted OpenTunnel service.
         </Txt>
       </Sheet>
       <Sheet
         visible={paste}
-        title="Paste pairing code"
+        title="Use an older pairing link"
         onClose={() => {
           setPaste(false);
           setPayload("");
         }}
       >
         <Txt muted>
-          Paste the complete pairing payload from Desktop. This uses the same
-          approval flow as scanning.
+          Paste an older Desktop pairing link or complete pairing payload.
+          Desktop approval is still required.
         </Txt>
         <TextInput
           accessibilityLabel="Pairing payload"
@@ -252,11 +211,11 @@ export default function PairingScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           style={[s.input, { minHeight: 120 }]}
-          placeholder="Paste Desktop pairing code"
+          placeholder="Paste Desktop pairing link"
           placeholderTextColor={C.faint}
         />
         <Button
-          title="Connect computer"
+          title="Connect with older link"
           primary
           disabled={!payload.trim()}
           onPress={() => submit(payload)}

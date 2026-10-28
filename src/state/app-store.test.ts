@@ -584,6 +584,7 @@ test("a public pairing link submits identity by POST and waits for Desktop appro
   );
   expect(api.request).toHaveBeenCalledWith("POST", "/mobile/v1/claim", {
     body: { desktopID: "pc_one", deviceName: "Phone" },
+    signal: expect.anything(),
   });
   expect(store.getSnapshot().confirmation).toBe("123456");
   expect(store.getSnapshot().devices).toEqual([]);
