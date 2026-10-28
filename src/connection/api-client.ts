@@ -56,6 +56,7 @@ export class ApiClient implements API {
       const response = await this.fetcher(url.toString(), {
         method,
         redirect: "error",
+        credentials: "omit",
         signal: controller.signal,
         headers: {
           accept: stream ? "text/event-stream" : "application/json",

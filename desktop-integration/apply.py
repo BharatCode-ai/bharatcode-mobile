@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = Path(sys.argv[1]).resolve()
-PIN = "1e97842919d87a350b38ea5fcf55f952af072e2e"
+PIN = "695c2d956e6bc6f27b881a1cdbe0a7acd0764bc3"
 if subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=TARGET, text=True).strip() != PIN:
     raise SystemExit("This integration requires the documented Desktop source revision.")
 
@@ -25,6 +25,7 @@ package = TARGET / "packages/mobile-connector"
 package.mkdir(exist_ok=True)
 shutil.copytree(ROOT / "desktop-connector/src", package / "src", dirs_exist_ok=True)
 shutil.copyfile(ROOT / "desktop-connector/package.json", package / "package.json")
+shutil.copytree(ROOT / "desktop-connector/test", package / "test", dirs_exist_ok=True)
 desktop = TARGET / "packages/desktop/package.json"
 value = json.loads(desktop.read_text())
 value["dependencies"]["@bharatcode/mobile-connector"] = "workspace:*"
@@ -51,7 +52,7 @@ edit("packages/desktop/src/main/index.ts", '      setSidecarAuthorization(sideca
 edit("packages/desktop/src/main/index.ts", '    setSidecarAuthorization(connection)', '    mobileConnection = connection\n    setSidecarAuthorization(connection)')
 edit("packages/desktop/src/main/index.ts", '  const windows = restoreMainWindows()', '  void Effect.runPromise(Deferred.await(serverReady)).then(() => mobileAccess.restore()).catch(() => {})\n  const windows = restoreMainWindows()')
 edit("packages/desktop/electron.vite.config.ts", '      externalizeDeps: { include: [nodePtyPkg] },', '      externalizeDeps: {\n        include: [nodePtyPkg],\n        exclude: ["@bharatcode/mobile-connector", "effect"],\n      },')
-edit("packages/app/src/i18n/en.ts", 'export const dict = {', 'import { MOBILE_ENGLISH } from "./mobile"\n\nexport const dict = {\n  ...MOBILE_ENGLISH,')
+edit("packages/app/src/i18n/bharatcode.ts", 'export const BHARATCODE_ENGLISH = {', 'import { MOBILE_ENGLISH } from "./mobile"\n\nexport const BHARATCODE_ENGLISH = {\n  ...MOBILE_ENGLISH,')
 edit("packages/app/src/components/dialog-settings.tsx", 'export const DialogSettings:', 'import { SettingsMobile } from "./settings-mobile"\n\nexport const DialogSettings:')
 edit("packages/app/src/components/dialog-settings.tsx", '                    <Tabs.Trigger value="general">', '                    <Show when={platform.mobileAccess}><Tabs.Trigger value="mobile"><Icon name="server" />{language.t("mobile.title")}</Tabs.Trigger></Show>\n                    <Tabs.Trigger value="general">')
 edit("packages/app/src/components/dialog-settings.tsx", '        <Tabs.Content value="general"', '        <Show when={platform.mobileAccess}><Tabs.Content value="mobile" class="no-scrollbar"><SettingsMobile /></Tabs.Content></Show>\n        <Tabs.Content value="general"')
@@ -59,7 +60,4 @@ edit("packages/app/src/components/dialog-settings.tsx", '        <Tabs.Content v
 edit("packages/app/src/components/settings-v2/dialog-settings-v2.tsx", 'import { SettingsMarketplace } from "../settings-marketplace"', 'import { SettingsMarketplace } from "../settings-marketplace"\nimport { SettingsMobile } from "../settings-mobile"')
 edit("packages/app/src/components/settings-v2/dialog-settings-v2.tsx", '                    <TabsV2.Trigger value="models">', '                    <Show when={platform.mobileAccess}>\n                      <TabsV2.Trigger value="mobile">\n                        <Icon name="server" />\n                        {language.t("mobile.title")}\n                      </TabsV2.Trigger>\n                    </Show>\n                    <TabsV2.Trigger value="models">')
 edit("packages/app/src/components/settings-v2/dialog-settings-v2.tsx", '        <TabsV2.Content value="models"', '        <Show when={platform.mobileAccess}>\n          <TabsV2.Content value="mobile" class="settings-v2-panel">\n            <SettingsMobile />\n          </TabsV2.Content>\n        </Show>\n        <TabsV2.Content value="models"')
-# A dev-branded desktop still needs the BharatCode account/catalog/execution path.
-# Apply before importing the embedded server, whose layer graph selects this policy.
-edit("packages/desktop/src/main/sidecar.ts", '    OPENCODE_SERVER_USERNAME: "opencode",', '    BHARATCODE_PRODUCT_POLICY: "shipped",\n    OPENCODE_SERVER_USERNAME: "opencode",')
 print("Applied mobile connector, trusted IPC and Mobile devices settings to the pinned Desktop source.")

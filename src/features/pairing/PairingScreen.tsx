@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Linking, ScrollView, TextInput, View, Platform } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Brand,
   Button,
@@ -20,6 +20,20 @@ export default function PairingScreen() {
   const router = useRouter();
   const initialDevice = useRef(state.device);
   const scanned = useRef(false);
+  const { link, delivery } = useLocalSearchParams<{
+    link?: string | string[];
+    delivery?: string | string[];
+  }>();
+  const opened = useRef<string | null>(null);
+  useEffect(() => {
+    if (link === undefined || Platform.OS === "web") return;
+    const intent = JSON.stringify([link, delivery]);
+    if (intent === opened.current) return;
+    opened.current = intent;
+    void store.pair(
+      typeof link === "string" && typeof delivery === "string" ? link : "",
+    );
+  }, [link, delivery, store]);
   useEffect(() => () => store.cancelPairing(), [store]);
   const [scan, setScan] = useState(false),
     [help, setHelp] = useState(false),

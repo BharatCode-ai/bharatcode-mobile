@@ -19,10 +19,11 @@ export async function createGateway(options) {
   const now = options.now ?? Date.now
   const claims = new Map(), active = new Map()
   const desktopAPI = options.runtime === 'desktop' ? await createDesktopAPI({ request: upstreamCall, storePath: join(dirname(options.storePath), 'admissions.json') }) : undefined
-  let qr, closed = false
+  let qr, closed = false, attempts = []
   const metadata = () => ({ id: registry.desktopID, name: options.name ?? hostname(), platform: platform() })
   function issuePairing(origin) {
     if (closed) throw new Error('Gateway closed')
+    claims.clear()
     qr = { v: 1, desktopID: registry.desktopID, origin: tunnelOrigin(origin), code: secret(), expiresAt: now() + lifetime }
     return { ...qr }
   }
@@ -41,6 +42,8 @@ export async function createGateway(options) {
     const token = secret()
     const device = { id: 'dev_' + secret().slice(0, 20), name: claim.name, pairedAt: now(), verifier: verifier(token) }
     try { await registry.add(device) } catch (error) { claim.state = 'waiting'; throw error }
+    qr = undefined
+    for (const other of claims.values()) if (other !== claim && other.state === 'waiting') other.state = 'declined'
     claim.state = 'approved'
     claim.token = token
     claim.device = { id: device.id, name: device.name, pairedAt: device.pairedAt }
@@ -59,11 +62,14 @@ export async function createGateway(options) {
       if (req.headers.origin) throw status(403, 'Browser-origin requests are not allowed')
       if (req.method === 'POST' && req.url === '/mobile/v1/claim') {
         const body = await jsonBody(req)
-        if (!qr || qr.expiresAt <= now() || !matches(body.code, verifier(qr.code))) throw status(401, 'Pairing code expired or used')
+        if (!qr || qr.expiresAt <= now() || (body.code !== undefined ? !matches(body.code, verifier(qr.code)) : body.desktopID !== registry.desktopID)) throw status(401, 'Pairing code expired or used')
         if (typeof body.deviceName !== 'string' || !body.deviceName.trim() || body.deviceName.length > 80 || /[\x00-\x1f\x7f]/.test(body.deviceName)) throw status(400, 'Invalid device name')
         for (const [id, claim] of claims) if (claim.expiresAt <= now()) claims.delete(id)
-        if (claims.size >= 100) throw status(429, 'Too many pairing attempts')
-        qr = undefined
+        attempts = attempts.filter(time => now() - time < 60_000)
+        if (claims.size >= 5 || attempts.length >= 10) throw status(429, 'Too many pairing attempts; refresh on Desktop')
+        attempts.push(now())
+        // A public link is discovery only. Access is issued solely by Desktop approval.
+        if (body.code !== undefined) qr = undefined
         const claimID = secret(), claimSecret = secret(), confirmation = String(randomInt(1_000_000)).padStart(6, '0')
         const claim = { claimID, verifier: verifier(claimSecret), name: body.deviceName.trim(), confirmation, expiresAt: now() + lifetime, state: 'waiting' }
         claims.set(claimID, claim)

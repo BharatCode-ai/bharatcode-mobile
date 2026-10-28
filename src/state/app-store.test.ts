@@ -9,7 +9,7 @@ const device: DesktopDevice = {
   id: "pc_one",
   name: "Computer",
   platform: "Linux",
-  origin: "https://pc.opentunnel.xyz",
+  origin: "https://pc.tunnel.bharatcode.ai",
   credentialID: "dev_one",
 };
 function setup() {
@@ -403,6 +403,134 @@ test("a lost live stream cannot abort an in-flight prompt request", async () => 
     store.dispose();
   }
 });
+test("a burst of streamed text preserves every delta with bounded UI notifications", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  let emit!: () => void;
+  api.liveEvents = async function* (_session, signal) {
+    await new Promise<void>((resolve) => (emit = resolve));
+    for (let i = 0; i < 200; i++)
+      yield {
+        type: "session.next.text.delta",
+        data: {
+          sessionID: "ses_one",
+          assistantMessageID: "reply",
+          textID: "text",
+          delta: `${i}\n`,
+        },
+      };
+    await new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+  };
+  try {
+    await store.connectDevice(device);
+    await store.openConversation("ses_one");
+    const snapshots: string[] = [];
+    store.subscribe(() => {
+      const text = store.getSnapshot().messages.at(-1)?.text;
+      if (text) snapshots.push(text);
+    });
+    emit();
+    await jest.advanceTimersByTimeAsync(100);
+    expect(store.getSnapshot().messages.at(-1)?.text).toBe(
+      Array.from({ length: 200 }, (_, i) => `${i}\n`).join(""),
+    );
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots.length).toBeLessThanOrEqual(2);
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
+
+test("queued streamed text cannot publish into another conversation or after revocation", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  let emit!: () => void;
+  let revoke!: () => void;
+  api.liveEvents = async function* () {
+    await new Promise<void>((resolve) => (emit = resolve));
+    yield {
+      type: "session.next.text.delta",
+      data: {
+        sessionID: "ses_one",
+        assistantMessageID: "reply",
+        textID: "text",
+        delta: "private reply",
+      },
+    };
+    await new Promise<void>((_resolve, reject) => {
+      revoke = () => reject(new ApiError(401, "Pair again"));
+    });
+  };
+  try {
+    await store.connectDevice(device);
+    await store.openConversation("ses_one");
+    emit();
+    await jest.advanceTimersByTimeAsync(0);
+    store.backToChats();
+    await jest.advanceTimersByTimeAsync(100);
+    expect(store.getSnapshot().messages).toEqual([]);
+    await store.openConversation("ses_one");
+    emit();
+    await jest.advanceTimersByTimeAsync(0);
+    revoke();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(store.getSnapshot().online).toBe(false);
+    expect(store.getSnapshot().error).toBe("Pair again");
+    const messages = store.getSnapshot().messages;
+    await jest.advanceTimersByTimeAsync(100);
+    expect(store.getSnapshot().messages).toBe(messages);
+    expect(store.getSnapshot().online).toBe(false);
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
+test("durable replay text deltas still refresh history", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  const request = api.request;
+  let updated = false;
+  api.request = async (...args) =>
+    args[1].endsWith("/health")
+      ? ({
+          protocol: 1,
+          desktop: { id: device.id },
+          capabilities: { replay: true },
+        } as never)
+      : updated && args[1].endsWith("/message")
+        ? ({
+            data: [
+              { id: "replayed", type: "assistant", text: "Replayed text" },
+            ],
+          } as never)
+        : request(...args);
+  let emit!: () => void;
+  api.events = async function* (_session, _after, signal) {
+    await new Promise<void>((resolve) => (emit = resolve));
+    yield {
+      seq: 1,
+      type: "session.next.text.delta",
+      data: { sessionID: "ses_one" },
+    };
+    await new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+  };
+  try {
+    await store.connectDevice(device);
+    await store.openConversation("ses_one");
+    updated = true;
+    emit();
+    await jest.advanceTimersByTimeAsync(200);
+    expect(store.getSnapshot().messages.at(-1)?.text).toBe("Replayed text");
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
 test("restoring saved computers finishes before remote health so cold start is not blocked by the network", async () => {
   const { store, persistence, api } = setup();
   await persistence.db.set("devices", JSON.stringify([device]));
@@ -434,5 +562,58 @@ test("restoring saved computers finishes before remote health so cold start is n
   } finally {
     store.dispose();
     await restoring;
+  }
+});
+
+test("a public pairing link submits identity by POST and waits for Desktop approval", async () => {
+  const { store, api } = setup();
+  const request = api.request;
+  api.request = jest.fn(async (...args: Parameters<API["request"]>) => {
+    if (args[1] === "/mobile/v1/claim")
+      return {
+        claimID: "claim",
+        claimSecret: "private",
+        confirmation: "123456",
+        expiresAt: Date.now() + 300000,
+      };
+    if (args[1] === "/mobile/v1/claim/status") return { state: "waiting" };
+    return request(...args);
+  }) as API["request"];
+  await store.pair(
+    "bharatcode://pair?origin=https%3A%2F%2Fpc.tunnel.bharatcode.ai&desktopID=pc_one",
+  );
+  expect(api.request).toHaveBeenCalledWith("POST", "/mobile/v1/claim", {
+    body: { desktopID: "pc_one", deviceName: "Phone" },
+  });
+  expect(store.getSnapshot().confirmation).toBe("123456");
+  expect(store.getSnapshot().devices).toEqual([]);
+  store.dispose();
+});
+
+test("idle Desktop network loss becomes offline and retries health without losing pairing", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  try {
+    await store.connectDevice(device);
+    const original = api.request;
+    let offline = true;
+    api.request = async (...args) => {
+      if (offline && args[1] === "/api/session/active")
+        throw new TypeError("Network request failed");
+      return original(...args);
+    };
+    await store.activity();
+    expect(store.getSnapshot().selected).toBeUndefined();
+    expect(store.getSnapshot().online).toBe(false);
+    expect(store.getSnapshot().notice).toContain("reconnecting");
+    expect(store.getSnapshot().device?.id).toBe("pc_one");
+    offline = false;
+    await jest.advanceTimersByTimeAsync(4100);
+    expect(store.getSnapshot().online).toBe(true);
+    expect(store.getSnapshot().notice).toBeUndefined();
+    expect(store.getSnapshot().device?.id).toBe("pc_one");
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
   }
 });
