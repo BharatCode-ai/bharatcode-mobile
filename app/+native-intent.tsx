@@ -4,10 +4,14 @@ let delivery = 0;
 
 export function redirectSystemPath({
   path,
+  initial,
 }: {
   path: string;
   initial: boolean;
 }) {
+  // Expo Router synthesizes this root URL for a normal standalone cold launch.
+  if (initial && (path === "bharatcode://" || path === "bharatcode:///"))
+    return "/";
   if (!path.startsWith("bharatcode:")) return path;
   let link = "invalid";
   try {

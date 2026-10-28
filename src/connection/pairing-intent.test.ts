@@ -5,6 +5,21 @@ const link =
 const route = (path: string, initial = false) =>
   new URL(redirectSystemPath({ path, initial }), "https://router.invalid");
 
+test.each(["bharatcode://", "bharatcode:///"])(
+  "a cold launcher root opens the app without submitting a pairing claim: %s",
+  (path) => expect(redirectSystemPath({ path, initial: true })).toBe("/"),
+);
+
+test.each([
+  "bharatcode://?token=do-not-copy",
+  "bharatcode:///?token=do-not-copy",
+  "bharatcode:///pair",
+])("cold malformed links still fail closed: %s", (path) => {
+  const target = route(path, true);
+  expect(target.searchParams.get("link")).toBe("invalid");
+  expect(target.href).not.toContain("do-not-copy");
+});
+
 test("native cold and warm pairing intents retain the validated public URI", () => {
   for (const initial of [true, false]) {
     const target = route(link, initial);
