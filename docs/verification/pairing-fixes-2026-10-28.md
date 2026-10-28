@@ -8,6 +8,8 @@
 
 The experimental service-side one-time pairing-code flow was reverted. This submission uses the existing hosted OpenTunnel service and requires no new server deployment.
 
+During release preparation, the live Expo compatibility gate required the current SDK 58 patch set. The final source now pins Expo 58.0.21 and resolves Expo Camera 58.0.14, which retains the 58.0.13 constructor fix. Related Expo modules and Jest Expo follow the supported patch versions. TypeScript, lint, 76 Jest tests, 15 security tests, `expo install --check`, and the high-severity npm audit gate passed after that alignment. The audit reports 15 low-severity dependency findings; it is not a zero-finding audit.
+
 ## Source checks
 
 Fresh checks on October 28 passed: TypeScript, ESLint, 76 Jest tests, 15 certificate/security tests, 52 connector tests, two integration-generator tests and three Linux browser-helper tests. The generator was exercised twice against its documented Desktop pin using `BHARATCODE_DESKTOP_SOURCE` set to a clone containing that pin. This distinguishes the test's clone prerequisite from implementation failures.
