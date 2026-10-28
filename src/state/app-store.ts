@@ -19,11 +19,7 @@ import {
   session,
 } from "../domain/decode";
 import { ApiClient, ApiError } from "../connection/api-client";
-import {
-  PairingPayload,
-  parsePairingPayload,
-} from "../connection/pairing-payload";
-import { resolvePairingCode } from "../connection/pairing-code";
+import { parsePairingPayload } from "../connection/pairing-payload";
 import {
   ConversationStore,
   Credentials,
@@ -66,8 +62,6 @@ export interface Dependencies {
   id?: () => string;
   now?: () => number;
   deviceName?: string;
-  resolveCode?: (text: string, signal: AbortSignal) => Promise<PairingPayload>;
-  pairingTransport?: typeof fetch;
 }
 const empty: Snapshot = {
   ready: false,
@@ -101,7 +95,6 @@ export class AppStore {
   private conversation = new AbortController();
   private streams = new AbortController();
   private pairing?: API;
-  private pairingAbort = new AbortController();
   private poll?: ReturnType<typeof setTimeout>;
   private retry?: ReturnType<typeof setTimeout>;
   private refreshTimer?: ReturnType<typeof setTimeout>;
@@ -913,36 +906,14 @@ export class AppStore {
     return r.data;
   }
   async pair(text: string) {
-    return this.startPairing(() => parsePairingPayload(text, this.now()));
-  }
-  async pairCode(text: string) {
-    return this.startPairing(
-      (signal) =>
-        this.deps.resolveCode?.(text, signal) ??
-        resolvePairingCode(text, {
-          signal,
-          transport: this.deps.pairingTransport,
-          now: () => this.now(),
-        }),
-      true,
-    );
-  }
-  private async startPairing(
-    resolve: (signal: AbortSignal) => PairingPayload | Promise<PairingPayload>,
-    relativeExpiry = false,
-  ) {
-    if (this.disposed) return;
     this.cancelPairing();
     const rev = this.pairRevision;
-    const signal = this.pairingAbort.signal;
     this.patch({ busy: true, error: undefined });
     try {
-      const payload = await resolve(signal);
-      if (rev !== this.pairRevision || signal.aborted) return;
+      const payload = parsePairingPayload(text, this.now());
       const api = this.factory(payload.origin, "");
       this.pairing = api;
       const claim = await api.request<Json>("POST", "/mobile/v1/claim", {
-        signal,
         body: {
           ...(payload.code
             ? { code: payload.code }
@@ -955,19 +926,12 @@ export class AppStore {
       const poll = async () => {
         if (rev !== this.pairRevision) return;
         try {
-          if (
-            Number(
-              relativeExpiry
-                ? payload.expiresAt
-                : (claim.expiresAt ?? payload.expiresAt),
-            ) <= this.now()
-          )
+          if (Number(claim.expiresAt ?? payload.expiresAt) <= this.now())
             throw new Error("Pairing code expired. Refresh it on Desktop.");
           const result = await api.request<Json>(
             "POST",
             "/mobile/v1/claim/status",
             {
-              signal,
               body: { claimID: claim.claimID, claimSecret: claim.claimSecret },
             },
           );
@@ -977,7 +941,9 @@ export class AppStore {
           if (result.state === "approved") {
             const raw = record(result.desktop);
             if (raw.id !== payload.desktopID)
-              throw new Error("Computer identity did not match this pairing.");
+              throw new Error(
+                "Computer identity did not match the scanned code.",
+              );
             const device: DesktopDevice = {
               id: String(raw.id),
               name: String(raw.name),
@@ -1016,8 +982,6 @@ export class AppStore {
   }
   cancelPairing() {
     this.pairRevision++;
-    this.pairingAbort.abort();
-    this.pairingAbort = new AbortController();
     clearTimeout(this.pairTimer);
     this.pairing?.close();
     this.pairing = undefined;

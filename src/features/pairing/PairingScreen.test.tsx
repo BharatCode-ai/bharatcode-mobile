@@ -36,7 +36,7 @@ test("Add computer stays on pairing even when another computer is selected", asy
       <PairingScreen />
     </StoreProvider>,
   );
-  expect(screen.getByLabelText("Eight-digit Desktop code")).toBeTruthy();
+  expect(screen.getByLabelText("Paste pairing code")).toBeTruthy();
   expect(replace).not.toHaveBeenCalled();
   store.dispose();
 });
@@ -90,64 +90,5 @@ test("routed pairing deliveries start and retry a real claim without a URL liste
   } finally {
     store.dispose();
     mockParams = {};
-  }
-});
-
-test("typed eight-digit code resolves and shows Desktop approval without using the camera", async () => {
-  const store = new AppStore({
-    persistence: new ConversationStore(new MemoryDatabase()),
-    credentials: {
-      get: async () => undefined,
-      set: async () => {},
-      remove: async () => {},
-    },
-    pairingTransport: async (_url, options) => {
-      expect(JSON.parse(String(options?.body))).toEqual({ code: "12345678" });
-      return {
-        ok: true,
-        status: 200,
-        redirected: false,
-        headers: { get: () => null },
-        text: async () =>
-          JSON.stringify({
-            v: 1,
-            origin: "https://pc.tunnel.bharatcode.ai",
-            desktopID: "pc_one",
-            code: "a".repeat(43),
-            serverTime: 1000,
-            expiresAt: 301000,
-          }),
-      } as unknown as Response;
-    },
-    apiFactory: () => ({
-      request: async (_method, path) =>
-        (path.endsWith("/claim")
-          ? { confirmation: "654321", claimID: "claim", claimSecret: "secret" }
-          : { state: "waiting" }) as never,
-      events: async function* () {},
-      liveEvents: async function* () {},
-      close() {},
-    }),
-  });
-  const screen = await render(
-    <StoreProvider store={store}>
-      <PairingScreen />
-    </StoreProvider>,
-  );
-  try {
-    expect(screen.getByLabelText("Connect computer")).toBeDisabled();
-    await fireEvent.changeText(
-      screen.getByLabelText("Eight-digit Desktop code"),
-      "1234-5678",
-    );
-    await fireEvent.press(screen.getByLabelText("Connect computer"));
-    expect(await screen.findByText("654321")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Check that this code matches Desktop before approving.",
-      ),
-    ).toBeTruthy();
-  } finally {
-    store.dispose();
   }
 });
