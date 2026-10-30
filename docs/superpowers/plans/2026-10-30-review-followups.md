@@ -29,4 +29,4 @@ The fresh independent source review reproduced a backward-clock replay risk in t
 
 ## Verification record
 
-See `docs/verification/admissions-recovery-2026-10-30.md` and Desktop `docs/support-review-2026-10-30.md`. Full app suites retain only the independently reproduced current-dev Arabic parity failure. Publication remains awaiting user approval of exact drafts; no PR, push, reply, packaging, installation, or deployment is authorized yet.
+See `docs/verification/admissions-recovery-2026-10-30.md` and Desktop `docs/support-review-2026-10-30.md`. Full app suites retain only the independently reproduced current-dev Arabic parity failure. Publication remains awaiting user approval of exact drafts; no PR, push, reply, installation, or deployment has occurred. In response to the request for stronger verification, a delegated gpt-6-luna/max worker built an isolated combined Linux package and verified actual export and Reset IPC. See the verification document for exact scope and remaining platform/device limits.
