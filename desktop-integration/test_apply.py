@@ -45,6 +45,13 @@ class DesktopIntegrationTest(unittest.TestCase):
         self.assertIn('window.api.mobileAccess(input)', renderer)
         self.assertNotIn('@opentunnel/client', renderer)
 
+    def test_generated_connector_matches_the_mobile_source(self):
+        for folder in ("src", "test"):
+            for source in (ROOT / "desktop-connector" / folder).rglob("*"):
+                if source.is_file():
+                    target = self.target / "packages/mobile-connector" / folder / source.relative_to(ROOT / "desktop-connector" / folder)
+                    self.assertEqual(target.read_bytes(), source.read_bytes(), str(source))
+
 
 if __name__ == "__main__":
     unittest.main()
