@@ -1,9 +1,12 @@
+import base64
 import copy
+import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
 import plistlib
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -130,6 +133,53 @@ class BuildGuards(unittest.TestCase):
     def test_signed_mode_rejects_unsigned_aab(self):
         with self.assertRaisesRegex(ValueError, "upload-key signature"):
             v.validate_aab(self.bundle(), "upload-key")
+
+    def test_signed_aab_checks_signature_and_fingerprint(self):
+        certificate = b"fixture certificate, not signing material"
+        pem = b"-----BEGIN CERTIFICATE-----\n" + base64.b64encode(certificate) + b"\n-----END CERTIFICATE-----\n"
+        results = [subprocess.CompletedProcess([], 0, b"jar verified.", b""),
+                   subprocess.CompletedProcess([], 0, pem, b"")]
+        with patch.dict(os.environ, ANDROID_UPLOAD_CERT_SHA256=hashlib.sha256(certificate).hexdigest()):
+            with patch.object(v.subprocess, "run", side_effect=results):
+                v.validate_aab(self.bundle(signed=True), "upload-key")
+        with patch.dict(os.environ, ANDROID_UPLOAD_CERT_SHA256="ab" * 32):
+            with patch.object(v.subprocess, "run", side_effect=results), self.assertRaisesRegex(ValueError, "wrong certificate"):
+                v.validate_aab(self.bundle(signed=True), "upload-key")
+
+    def test_signed_aab_rejects_failed_verification(self):
+        result = subprocess.CompletedProcess([], 1, b"invalid", b"")
+        with patch.object(v.subprocess, "run", return_value=result), self.assertRaisesRegex(ValueError, "verification failed"):
+            v.validate_aab(self.bundle(signed=True), "upload-key")
+
+    def signing_env(self, certificate):
+        return {"BC_ANDROID_SIGNING": "upload-key", "RUNNER_TEMP": str(self.root),
+                "ANDROID_KEYSTORE_BASE64": base64.b64encode(b"fixture, not a real keystore").decode(),
+                "ANDROID_KEYSTORE_PASSWORD": "fixture", "ANDROID_KEY_ALIAS": "fixture",
+                "ANDROID_KEY_PASSWORD": "fixture",
+                "ANDROID_UPLOAD_CERT_SHA256": hashlib.sha256(certificate).hexdigest()}
+
+    def test_key_install_uses_private_file_and_password_environment(self):
+        certificate = b"fixture certificate"
+        results = [subprocess.CompletedProcess([], 0, certificate, b""),
+                   subprocess.CompletedProcess([], 0, b"CN=BharatCode Upload", b"")]
+        with patch.dict(os.environ, self.signing_env(certificate)):
+            with patch.object(v.subprocess, "run", side_effect=results) as commands:
+                v.install_key()
+            self.assertEqual(v.key_path().stat().st_mode & 0o777, 0o600)
+            args = commands.call_args_list[0].args[0]
+            self.assertIn("-storepass:env", args)
+            self.assertNotIn("-storepass", args)
+
+    def test_key_install_rejects_wrong_certificate(self):
+        with patch.dict(os.environ, self.signing_env(b"expected")):
+            with patch.object(v.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"wrong", b"")):
+                with self.assertRaisesRegex(ValueError, "fingerprint mismatch"):
+                    v.install_key()
+
+    def test_unsigned_does_not_install_key(self):
+        with patch.object(v.subprocess, "run") as commands:
+            v.install_key()
+        commands.assert_not_called()
 
     def test_ios_archive_requires_device_bundle_and_no_signing(self):
         app = self.ios_app()

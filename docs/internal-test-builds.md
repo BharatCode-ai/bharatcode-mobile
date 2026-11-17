@@ -40,10 +40,16 @@ dispatch. If needed, a temporary bootstrap trigger restricted to the preparation
 branch may validate unsigned builds; remove it before final handoff. Do not merge
 to main merely to register the workflow. Record exact commits and runs separately.
 
-`source` runs mobile tests, typecheck/lint, security regressions, audit, Expo
+`source` runs mobile tests, typecheck/lint, security regressions, Expo
 compatibility, resolved identity checks, and negative build-number checks before
 native jobs. Existing source CI also checks the Desktop connector and helpers.
 The native jobs run independently so one platform failure doesn't cancel the other.
+
+The separate `security` job audits the lockfile and retains its JSON report. An
+audit failure **keeps the workflow red and blocks upload-key signing**. Only
+unsigned diagnostic compilation may continue; its metadata records the failed
+audit and it cannot be uploaded to a store. This is not an audit waiver, and the
+existing Source checks audit remains unchanged.
 
 ## Android signing contract (account-independent)
 
@@ -98,6 +104,13 @@ customer data in builds. The AAB/unsigned archive alone does not certify a worki
 native installation. Do not uninstall or clear an existing app to bypass signing.
 
 ## Exact remaining release prerequisites
+
+**Dependency security:** the first November 18 hosted run against the unchanged
+lockfile reported 78 findings (11 moderate, 67 high), including the picomatch ReDoS
+advisory GHSA-fc5q-39xc-vjpf and inherited tooling dependents. Mobile tests passed.
+Resolve and review the locked build-tool dependency advisories before a signed
+candidate can be produced. Do not use `npm audit fix --force` (its proposed Expo
+downgrade is outside this build-preparation task), or bypass the audit gate.
 
 **Android signing:** the four environment secrets and certificate fingerprint
 above; validate a successful signed build before requesting Play upload.

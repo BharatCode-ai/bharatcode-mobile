@@ -1,9 +1,6 @@
 name: Internal native builds (NO STORE UPLOAD)
 
 on:
-  # One-time branch-only bootstrap; remove after registration. Always unsigned.
-  push:
-    branches: [prep/internal-test-builds-20261118]
   workflow_dispatch:
     inputs:
       platform:
@@ -53,7 +50,6 @@ jobs:
       - run: python3 -m unittest discover -s scripts/internal-build -p 'test_*.py'
       - run: npm ci
       - run: npm run check
-      - run: npm audit --audit-level=high
       - run: npx --no-install expo install --check
       - name: Validate resolved identity and build numbers
         run: |
@@ -69,9 +65,35 @@ jobs:
             fi
           done
 
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Audit locked dependencies (hard gate for signing)
+        run: |
+          mkdir -p build/security
+          npm audit --package-lock-only --audit-level=high --json > build/security/npm-audit.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: dependency-audit-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/security/npm-audit.json
+          if-no-files-found: error
+          retention-days: 7
+
   android:
-    if: github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'android'
-    needs: source
+    # Unsigned diagnostics may compile with a FAILED audit, but signing cannot.
+    if: >-
+      always() && !cancelled() && needs.source.result == 'success' &&
+      (inputs.platform == 'both' || inputs.platform == 'android') &&
+      (inputs.android_signing != 'upload-key' || needs.security.result == 'success')
+    needs: [source, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment: mobile-internal
@@ -119,6 +141,7 @@ jobs:
         env:
           BC_ANDROID_SIGNING: ${{ inputs.android_signing || 'unsigned' }}
           ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+          BC_SECURITY_AUDIT: ${{ needs.security.result }}
         run: python3 scripts/internal-build/validate.py android
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -131,8 +154,11 @@ jobs:
         run: python3 scripts/internal-build/validate.py remove-key
 
   ios:
-    if: github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'ios'
-    needs: source
+    # Always unsigned; the failed security job remains visible on the run.
+    if: >-
+      always() && !cancelled() && needs.source.result == 'success' &&
+      (inputs.platform == 'both' || inputs.platform == 'ios')
+    needs: [source, security]
     runs-on: macos-26
     timeout-minutes: 90
     env:
@@ -162,6 +188,8 @@ jobs:
             CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= \
             COMPILER_INDEX_STORE_ENABLE=NO archive
       - name: Verify and label archive (no IPA export)
+        env:
+          BC_SECURITY_AUDIT: ${{ needs.security.result }}
         run: python3 scripts/internal-build/validate.py ios
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

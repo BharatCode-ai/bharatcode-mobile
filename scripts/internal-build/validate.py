@@ -195,6 +195,7 @@ def record(platform, artifact):
         "artifact": artifact.name,
         "sha256": digest,
         "signing": "upload-key" if signed else "UNSIGNED",
+        "dependencyAudit": os.environ.get("BC_SECURITY_AUDIT", "not-run"),
         "certificateSha256": expected_fingerprint() if signed else None,
         "storeUploadable": False,
         "storeUploadableReason": "Store account/listing/key registration and final acceptance not verified" if signed else "Unsigned artifact",
@@ -212,6 +213,7 @@ def record(platform, artifact):
         "number, and exact final artifact acceptance need separate verification.\n"
         "Never public release. iOS is TestFlight only; Android is Play INTERNAL only.\n"
     )
+    note += f"Dependency audit: {metadata['dependencyAudit']}. See the separate audit artifact.\n"
     (artifact.parent / "READ-ME-FIRST.txt").write_text(note)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:

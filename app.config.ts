@@ -4,7 +4,8 @@ import type { ExpoConfig } from "expo/config";
 const internalBuildNumber = process.env.BC_INTERNAL_BUILD_NUMBER;
 if (
   internalBuildNumber !== undefined &&
-  !/^[1-9][0-9]{0,3}$/.test(internalBuildNumber)
+  (!/^[1-9][0-9]{0,3}$/.test(internalBuildNumber) ||
+    String(Number(internalBuildNumber)) !== internalBuildNumber)
 ) {
   throw new Error("BC_INTERNAL_BUILD_NUMBER must be an integer from 1 to 9999");
 }
