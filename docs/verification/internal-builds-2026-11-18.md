@@ -1,8 +1,9 @@
 # Internal build preparation — November 18, 2026
 
 This is a build/evidence record, **not a public-release approval**. No branch was
-merged, and no store upload or public release has been reported. Only TestFlight
-and Play INTERNAL are permitted future destinations. The CI workflows did not
+merged, and no public release was made. The verified Android candidate was later
+uploaded manually and published only to Play INTERNAL with explicit approval.
+Only TestFlight and Play INTERNAL are permitted destinations. The CI workflows did not
 create store records or signing keys; the parent separately handled the original
 Play Draft, duplicate-draft deletion, and approved upload-key provisioning.
 
@@ -223,3 +224,15 @@ See [the approved exception record](android-internal-exception-2026-11-18.md) an
 Run **44171899132**, attempt 1, succeeded; exact artifact and independent
 verification evidence appear above. Manual Play INTERNAL delivery is separate
 from this build result. No public release or physical-device acceptance is claimed.
+
+## Approved manual Play INTERNAL delivery
+
+On November 18 at 02:38 IST, the owner-approved Google-managed app-signing choice,
+verified AAB upload, and separately approved internal publication completed for
+the original app. Play reports **Active**, release **0.2.0 (1) - internal**, and
+**Available to internal testers**. Only the dedicated four-person tester list is
+selected; unrelated lists remain unselected. Play accepted versionCode 1, target
+SDK 36, minimum API 24, with an estimated 19.8 MB new-install download. Our upload
+key is unchanged. Play displays a temporary unreviewed app name for this first
+internal release. Physical-device acceptance is the next step, not an implied
+result of successful signing or store upload. No public track was enabled.
