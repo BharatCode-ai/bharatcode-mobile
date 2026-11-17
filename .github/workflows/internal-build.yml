@@ -1,6 +1,9 @@
 name: Internal native builds (NO STORE UPLOAD)
 
 on:
+  # One-time branch-only bootstrap; remove after registration. Always unsigned.
+  push:
+    branches: [prep/internal-test-builds-20261118]
   workflow_dispatch:
     inputs:
       platform:
@@ -67,7 +70,7 @@ jobs:
           done
 
   android:
-    if: inputs.platform == 'both' || inputs.platform == 'android'
+    if: github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'android'
     needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -128,7 +131,7 @@ jobs:
         run: python3 scripts/internal-build/validate.py remove-key
 
   ios:
-    if: inputs.platform == 'both' || inputs.platform == 'ios'
+    if: github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'ios'
     needs: source
     runs-on: macos-26
     timeout-minutes: 90
