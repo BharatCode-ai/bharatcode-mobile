@@ -42,6 +42,14 @@ not the iPhoneOS target, app identity, signing state, or delivery permissions.
 Intel is the default because GitHub could not acquire an ARM64 runner for the
 initial validation attempt and reported hosted ARM64 capacity constraints.
 
+The separate signed iOS path is explicitly selected with `platform=ios` and
+`ios_signing=testflight`; `ios_signing` defaults to `unsigned`. It uses the same
+allowlisted hosted runners, requires all readiness gates, and exports an IPA with
+the TestFlight-internal-only restriction. It never uploads to Apple. Do not dispatch
+until the release delegate has verified and provisioned the Apple assets described
+in [TestFlight preparation](verification/testflight-preparation-2026-11-18.md).
+Do not use `platform=both` for a signed iOS build or rebuild Android for this lane.
+
 New branch-only workflows may require a first run before GitHub permits manual
 dispatch. If needed, a temporary bootstrap trigger restricted to the preparation
 branch may validate unsigned builds; remove it before final handoff. Do not merge
@@ -63,6 +71,13 @@ artifact upload. See the [scoped decision](verification/android-internal-excepti
 This is not a clean audit or public-release approval. Existing Source checks
 retain their ordinary unmodified audit policy. Unsigned diagnostic artifacts
 cannot be uploaded to a store.
+
+The owner subsequently approved that same exact advisory/version/expiry exception
+for explicit iOS TestFlight-internal signing only. `platform=ios` plus
+`ios_signing=testflight` enables the iOS scope; all other high/critical findings
+still block. The actual Xcode archive's native JS source map is checked again before
+export, and the exported IPA's JS must match the archive. The local Windows iOS JS
+export is supporting evidence, not a substitute. The Android policy is unchanged.
 
 Expo's live compatibility recommendation is also a separate hard gate for signing;
 its report remains an artifact and a failed `compatibility` job. Unsigned builds
@@ -111,9 +126,14 @@ attempt, app identity/version, signing state, and binary checksum.
 - **Signed Android:** `BharatCode-UPLOAD-KEY-PLAY-INTERNAL-CANDIDATE.aab`.
   Cryptographically checked upload-key artifact, not a claim that Play will accept
   it. Account/listing/key registration, metadata, and final acceptance remain gates.
-- **iOS:** `BharatCode-UNSIGNED-NOT-UPLOADABLE.xcarchive.tar.gz`.
+- **Unsigned iOS:** `BharatCode-UNSIGNED-NOT-UPLOADABLE.xcarchive.tar.gz`.
   Real iPhoneOS Release archive using Xcode 26.6, not a simulator artifact.
   Code signing/provisioning is disabled; no IPA export or TestFlight upload.
+- **Signed iOS:** `BharatCode-TESTFLIGHT-INTERNAL-CANDIDATE.ipa`.
+  Explicit manual Distribution signing and internal-only export, verified native
+  runtime exclusion and matching archive/exported JS. No TestFlight upload or
+  Apple/device acceptance is claimed. Its provisioning profile is embedded in the
+  IPA by design; no loose signing material is included in the artifact allowlist.
 
 Only allowlisted output files are uploaded, not keystores, Pods, native build
 directories, raw environments, or provisioning profiles. Public-repository Actions
@@ -153,13 +173,19 @@ no releases when inspected on November 18. Upload-certificate registration and
 final track acceptance remain with the release delegate. This workflow stores no
 developer-account identifier and assumes no account-specific API access.
 
-**Apple signing:** access to the correct Apple Developer Program team; an App ID
-for `ai.bharatcode.bharatcodeMobile`; an approved Apple Distribution certificate
-with private key (password-protected P12) and matching App Store provisioning
-profile; the real Team ID; a matching App Store Connect app record/numeric Apple
-ID; an unused build number. None is invented here. Apple access was blocked by an
-embedded 502 on November 18; signing resources and membership remain unverified.
-No signed iOS CI path is configured until these resources can be inspected safely.
+**Apple signing:** parent verified team/prefix `B2T9HN8AD4`, the iOS-only App Store
+Connect app `6836039139` with exact bundle `ai.bharatcode.bharatcodeMobile`, and
+unused build 1. The user approved separate Apple Distribution certificate/profile
+creation and encrypted backup by the parent; the existing macOS Developer ID
+certificate is not reused or changed. Parent reports the dedicated assets are
+provisioned, with keypair/P12/profile validation and encrypted backups verified;
+the first hosted signing/archive/export remains pending.
+The local signed iOS workflow uses protected environment `mobile-internal-ios`:
+secrets `IOS_DISTRIBUTION_P12_BASE64`, `IOS_DISTRIBUTION_P12_PASSWORD`,
+`IOS_PROVISION_PROFILE_BASE64`; public variables `IOS_TEAM_ID`, `IOS_APP_ID_PREFIX`,
+`IOS_PROVISION_PROFILE_UUID`, `IOS_DISTRIBUTION_CERT_SHA256`. No Apple login/API
+upload credential is needed for build-only export. See the
+[signing plan and validation limits](verification/testflight-preparation-2026-11-18.md).
 
 **TestFlight delivery:** App Store Connect access/role sufficient for build upload
 and internal tester management (or separately authorized API credentials), signed

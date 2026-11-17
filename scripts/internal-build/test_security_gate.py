@@ -73,6 +73,30 @@ class SecurityGate(unittest.TestCase):
         for mapping in ({}, {'version': 3, 'sources': []}, {'version': 3, 'sections': [{'url': 'missing'}]}):
             with self.assertRaises(ValueError): gate.runtime(mapping)
 
+    def test_ios_approval_has_same_advisory_versions_and_expiry(self):
+        report = gate.assess(self.audit, self.lock, True, self.today, platform='ios')
+        self.assertEqual(report['scope'], 'iOS TestFlight internal-test build only')
+        self.assertEqual(report['exception'], gate.EXCEPTION)
+        self.assertEqual(report['expires'], '2026-12-02')
+        self.assertTrue(report['runtimeVerificationRequired'])
+        with self.assertRaises(ValueError):
+            gate.assess(self.audit, self.lock, True, date(2026, 12, 3), platform='ios')
+        self.lock['packages']['node_modules/picomatch']['version'] = '4.0.8'
+        with self.assertRaises(ValueError):
+            gate.assess(self.audit, self.lock, True, self.today, platform='ios')
+
+    def test_ios_does_not_accept_another_high_or_critical_advisory(self):
+        for severity in ('high', 'critical'):
+            self.audit['vulnerabilities']['picomatch']['via'].append(
+                {'name': 'other', 'severity': severity, 'url': 'https://example.com/not-approved'})
+            with self.assertRaises(ValueError):
+                gate.assess(self.audit, self.lock, True, self.today, platform='ios')
+            self.audit['vulnerabilities']['picomatch']['via'].pop()
+        with self.assertRaises(ValueError):
+            gate.assess(self.audit, self.lock, False, self.today, platform='ios')
+        with self.assertRaises(ValueError):
+            gate.assess(self.audit, self.lock, True, self.today, platform='both')
+
 
 if __name__ == '__main__':
     unittest.main()

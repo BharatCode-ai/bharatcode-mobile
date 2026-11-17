@@ -18,7 +18,8 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def assess(audit, lock, enabled=False, today=None):
+def assess(audit, lock, enabled=False, today=None, platform='android'):
+    require(platform in ('android', 'ios'), 'Unknown internal-test platform')
     require(not audit.get('error') and audit.get('auditReportVersion') == 2, 'Invalid npm audit report')
     rows = audit.get('vulnerabilities')
     require(isinstance(rows, dict), 'Missing audit vulnerabilities')
@@ -62,7 +63,8 @@ def assess(audit, lock, enabled=False, today=None):
             require(lock.get('packages', {}).get(node, {}).get('version') in ('2.3.2', '4.0.7'),
                     'Unreviewed picomatch version: ' + node)
     return {'exception': EXCEPTION if used else None, 'expires': EXPIRES.isoformat() if used else None,
-            'advisories': sorted(used), 'scope': 'Android internal-test build only',
+            'advisories': sorted(used), 'scope': ('Android internal-test build only' if platform == 'android'
+                                               else 'iOS TestFlight internal-test build only'),
             'runtimeVerificationRequired': bool(used), 'totals': audit['metadata']['vulnerabilities']}
 
 
@@ -96,19 +98,21 @@ def main():
         (folder / 'npm-audit.json').write_bytes(result.stdout)
         require(result.returncode in (0, 1), 'npm audit could not complete')
         report = assess(json.loads(result.stdout), json.loads(Path('package-lock.json').read_text()),
-                        os.environ.get('BC_INTERNAL_SECURITY_EXCEPTION') == EXCEPTION)
+                        os.environ.get('BC_INTERNAL_SECURITY_EXCEPTION') == EXCEPTION,
+                        platform=os.environ.get('BC_INTERNAL_SECURITY_PLATFORM', 'android'))
         report['lockSha256'] = hashlib.sha256(Path('package-lock.json').read_bytes()).hexdigest()
         (folder / 'audit-decision.json').write_text(json.dumps(report, indent=2) + '\n')
         if report['exception']:
             print('::warning::Unpatched picomatch advisory retained under approved temporary internal-test exception; runtime exclusion must pass.')
         print(json.dumps(report))
-    elif command == 'runtime':
+    elif command in ('runtime', 'runtime-ios'):
         path = Path(sys.argv[2])
         report = runtime(json.loads(path.read_text()))
         report['sourceMapSha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
         report['exceptionPolicy'] = EXCEPTION
         report['publicReleaseApproved'] = False
-        output = Path('build/internal-artifacts/android/runtime-exclusion.json')
+        platform = 'ios' if command == 'runtime-ios' else 'android'
+        output = Path(f'build/internal-artifacts/{platform}/runtime-exclusion.json')
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report))

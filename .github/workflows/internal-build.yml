@@ -26,6 +26,12 @@ on:
         options: [macos-26-intel, macos-26]
         default: macos-26-intel
         required: true
+      ios_signing:
+        description: iOS signing (TestFlight internal only; requires platform=ios; never uploads)
+        type: choice
+        options: [unsigned, testflight]
+        default: unsigned
+        required: true
 
 permissions:
   contents: read
@@ -56,6 +62,16 @@ jobs:
           node-version: '24'
           cache: npm
       - run: python3 -m unittest discover -s scripts/internal-build -p 'test_*.py'
+      - name: Require iOS-only selection for TestFlight signing
+        env:
+          BC_IOS_SIGNING: ${{ inputs.ios_signing || 'unsigned' }}
+          BC_BUILD_PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$BC_IOS_SIGNING" in
+            unsigned) ;;
+            testflight) test "$BC_BUILD_PLATFORM" = ios ;;
+            *) exit 1 ;;
+          esac
       - run: npm ci
       - run: npm run check
       - name: Check Expo compatibility (reported by separate hard gate)
@@ -107,7 +123,8 @@ jobs:
           node-version: '24'
       - name: Audit locked dependencies (hard gate for signing)
         env:
-          BC_INTERNAL_SECURITY_EXCEPTION: ${{ inputs.platform == 'android' && inputs.android_signing == 'upload-key' && '20261118-picomatch-internal' || '' }}
+          BC_INTERNAL_SECURITY_EXCEPTION: ${{ ((inputs.platform == 'android' && inputs.android_signing == 'upload-key') || (inputs.platform == 'ios' && inputs.ios_signing == 'testflight')) && '20261118-picomatch-internal' || '' }}
+          BC_INTERNAL_SECURITY_PLATFORM: ${{ inputs.platform == 'ios' && 'ios' || 'android' }}
         run: |
           python3 scripts/internal-build/security_gate.py audit
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -189,10 +206,10 @@ jobs:
         run: python3 scripts/internal-build/validate.py remove-key
 
   ios:
-    # Always unsigned; the failed security job remains visible on the run.
+    # Default unsigned diagnostics; the signed lane below requires all gates.
     if: >-
       always() && !cancelled() && needs.source.result == 'success' &&
-      (inputs.platform == 'both' || inputs.platform == 'ios')
+      (inputs.platform == 'both' || inputs.platform == 'ios') && inputs.ios_signing != 'testflight'
     needs: [source, security, compatibility]
     # Map even API-supplied input to an allowlisted hosted runner, never self-hosted.
     runs-on: ${{ inputs.ios_runner == 'macos-26' && 'macos-26' || 'macos-26-intel' }}
@@ -232,5 +249,80 @@ jobs:
         with:
           name: ios-UNSIGNED-NOT-UPLOADABLE-${{ github.sha }}-${{ github.run_attempt }}
           path: build/internal-artifacts/ios/*
+          if-no-files-found: error
+          retention-days: 7
+
+  ios-signed:
+    if: >-
+      !cancelled() && inputs.platform == 'ios' && inputs.ios_signing == 'testflight' &&
+      needs.source.result == 'success' && needs.security.result == 'success' && needs.compatibility.result == 'success'
+    needs: [source, security, compatibility]
+    runs-on: ${{ inputs.ios_runner == 'macos-26' && 'macos-26' || 'macos-26-intel' }}
+    timeout-minutes: 90
+    environment: mobile-internal-ios
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+      IOS_APP_ID_PREFIX: ${{ vars.IOS_APP_ID_PREFIX }}
+      IOS_PROVISION_PROFILE_UUID: ${{ vars.IOS_PROVISION_PROFILE_UUID }}
+      IOS_DISTRIBUTION_CERT_SHA256: ${{ vars.IOS_DISTRIBUTION_CERT_SHA256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check and import approved signing material (no credential creation)
+        env:
+          IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+        run: python3 scripts/internal-build/ios_signing.py install
+      - run: npm ci
+      - name: Generate iOS project and scope manual signing to app target
+        run: |
+          npx --no-install expo prebuild --platform ios --no-install
+          python3 scripts/internal-build/ios_signing.py prepare-project
+          cd ios
+          pod install
+      - name: Verify effective Release signing settings before compiling
+        run: python3 scripts/internal-build/ios_signing.py build-settings
+      - name: Archive signed iPhoneOS Release with actual native source map
+        run: |
+          mkdir -p build/ios
+          xcodebuild -workspace ios/BharatCode.xcworkspace -scheme BharatCode \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/BharatCode-TESTFLIGHT.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/bharatcode-derived-data" \
+            SOURCEMAP_FILE="$PWD/build/ios/main.jsbundle.map" \
+            COMPILER_INDEX_STORE_ENABLE=NO archive
+      - name: Require runtime exclusion again on the actual native iOS bundle map
+        run: python3 scripts/internal-build/security_gate.py runtime-ios build/ios/main.jsbundle.map
+      - name: Verify signed archive before export
+        run: python3 scripts/internal-build/ios_signing.py verify-archive
+      - name: Export IPA for TestFlight INTERNAL ONLY (no upload)
+        run: |
+          xcodebuild -exportArchive -archivePath "$PWD/build/BharatCode-TESTFLIGHT.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/bharatcode-ios-signing/ExportOptions.plist" \
+            -exportPath "$PWD/build/ios-export"
+      - name: Verify exported IPA and label candidate
+        env:
+          BC_SECURITY_AUDIT: ${{ needs.security.result }}
+          BC_EXPO_COMPATIBILITY: ${{ needs.compatibility.result }}
+        run: python3 scripts/internal-build/ios_signing.py verify-export
+      - name: Remove temporary signing material and restore keychain search list
+        if: always()
+        run: python3 scripts/internal-build/ios_signing.py cleanup
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-TESTFLIGHT-INTERNAL-CANDIDATE-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            build/internal-artifacts/ios/BharatCode-TESTFLIGHT-INTERNAL-CANDIDATE.ipa
+            build/internal-artifacts/ios/build-metadata.json
+            build/internal-artifacts/ios/runtime-exclusion.json
+            build/internal-artifacts/ios/SHA256SUMS
+            build/internal-artifacts/ios/READ-ME-FIRST.txt
           if-no-files-found: error
           retention-days: 7
