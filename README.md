@@ -68,6 +68,11 @@ npm start
 
 No EAS account or cloud build service is required. Native project directories are generated from `app.config.ts`; Flutter native templates have been removed. Do not use the old Flutter build commands. For this workspace, packaging, installation, and qualification are performed by the designated release delegate.
 
+For hosted build-only preparation for Play INTERNAL and TestFlight, see
+[internal-test build instructions](docs/internal-test-builds.md). The manual workflow
+does not upload to stores or create signing keys; unsigned validation artifacts are
+explicitly not store-ready.
+
 To explore the sample interface in a browser:
 
 ```sh

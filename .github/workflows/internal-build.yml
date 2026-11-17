@@ -1,0 +1,168 @@
+name: Internal native builds (NO STORE UPLOAD)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Native platform to validate (never uploads)
+        type: choice
+        options: [both, android, ios]
+        default: both
+        required: true
+      build_number:
+        description: Diagnostic build number, 1-9999; NOT a reserved store number
+        type: string
+        default: '1'
+        required: true
+      android_signing:
+        description: Android signing (upload-key requires approved secrets; never uploads)
+        type: choice
+        options: [unsigned, upload-key]
+        default: unsigned
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: internal-build-${{ github.ref }}-${{ inputs.platform }}
+  cancel-in-progress: false
+
+env:
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
+  EXPO_NO_DOTENV: '1'
+  EXPO_PUBLIC_BC_PREVIEW: '0'
+  BC_INTERNAL_BUILD_NUMBER: ${{ inputs.build_number || '1' }}
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: python3 -m unittest discover -s scripts/internal-build -p 'test_*.py'
+      - run: npm ci
+      - run: npm run check
+      - run: npm audit --audit-level=high
+      - run: npx --no-install expo install --check
+      - name: Validate resolved identity and build numbers
+        run: |
+          mkdir -p build
+          npx --no-install expo config --type public --json > build/expo-config.json
+          python3 scripts/internal-build/validate.py config build/expo-config.json
+      - name: Reject invalid build numbers
+        run: |
+          for invalid in 0 01 10000 -1 1.2 invalid; do
+            if BC_INTERNAL_BUILD_NUMBER="$invalid" npx --no-install expo config --json >/dev/null 2>&1; then
+              echo 'Invalid build number was accepted' >&2
+              exit 1
+            fi
+          done
+
+  android:
+    if: inputs.platform == 'both' || inputs.platform == 'android'
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: mobile-internal
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Check signing prerequisites without printing credentials
+        if: inputs.android_signing == 'upload-key'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+        run: python3 scripts/internal-build/validate.py signing-prerequisites
+      - run: npm ci
+      - name: Generate native project with explicit signing policy
+        env:
+          BC_ANDROID_SIGNING: ${{ inputs.android_signing || 'unsigned' }}
+        run: |
+          npx --no-install expo prebuild --platform android --no-install
+          python3 scripts/internal-build/validate.py prepare-android
+      - name: Compile Release AAB (not APK/debug; no upload)
+        working-directory: android
+        env:
+          BC_ANDROID_SIGNING: ${{ inputs.android_signing || 'unsigned' }}
+          ANDROID_KEYSTORE_BASE64: ${{ inputs.android_signing == 'upload-key' && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ inputs.android_signing == 'upload-key' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          ANDROID_KEY_ALIAS: ${{ inputs.android_signing == 'upload-key' && secrets.ANDROID_KEY_ALIAS || '' }}
+          ANDROID_KEY_PASSWORD: ${{ inputs.android_signing == 'upload-key' && secrets.ANDROID_KEY_PASSWORD || '' }}
+          ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+        run: |
+          python3 ../scripts/internal-build/validate.py install-key
+          ./gradlew :app:verifyInternalRelease :app:bundleRelease --no-daemon --max-workers=2
+      - name: Verify and label artifact
+        env:
+          BC_ANDROID_SIGNING: ${{ inputs.android_signing || 'unsigned' }}
+          ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+        run: python3 scripts/internal-build/validate.py android
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-${{ inputs.android_signing || 'unsigned' }}-INTERNAL-ONLY-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/internal-artifacts/android/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove temporary upload key
+        if: always()
+        run: python3 scripts/internal-build/validate.py remove-key
+
+  ios:
+    if: inputs.platform == 'both' || inputs.platform == 'ios'
+    needs: source
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: xcodebuild -version
+      - run: npm ci
+      - name: Generate native project and install Pods on hosted macOS only
+        run: |
+          npx --no-install expo prebuild --platform ios --no-install
+          cd ios
+          pod install
+      - name: Archive unsigned iPhoneOS Release (not simulator/debug)
+        run: |
+          xcodebuild -workspace ios/BharatCode.xcworkspace -scheme BharatCode \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/BharatCode-UNSIGNED.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/bharatcode-derived-data" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= \
+            COMPILER_INDEX_STORE_ENABLE=NO archive
+      - name: Verify and label archive (no IPA export)
+        run: python3 scripts/internal-build/validate.py ios
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-UNSIGNED-NOT-UPLOADABLE-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/internal-artifacts/ios/*
+          if-no-files-found: error
+          retention-days: 7

@@ -21,6 +21,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: python3 -m unittest discover -s scripts/internal-build -p 'test_*.py'
       - run: npm run check
       - run: npm audit --audit-level=high
       - run: npx expo install --check
