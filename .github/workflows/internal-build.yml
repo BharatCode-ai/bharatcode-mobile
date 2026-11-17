@@ -39,6 +39,8 @@ jobs:
   source:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      compatibility: ${{ steps.compatibility.outcome }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,7 +52,19 @@ jobs:
       - run: python3 -m unittest discover -s scripts/internal-build -p 'test_*.py'
       - run: npm ci
       - run: npm run check
-      - run: npx --no-install expo install --check
+      - name: Check Expo compatibility (reported by separate hard gate)
+        id: compatibility
+        continue-on-error: true
+        run: |
+          mkdir -p build/compatibility
+          set -o pipefail
+          npx --no-install expo install --check 2>&1 | tee build/compatibility/expo-check.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: expo-compatibility-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/compatibility/expo-check.txt
+          if-no-files-found: error
+          retention-days: 7
       - name: Validate resolved identity and build numbers
         run: |
           mkdir -p build
@@ -64,6 +78,16 @@ jobs:
               exit 1
             fi
           done
+
+  compatibility:
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require supported Expo dependency versions before signing
+        env:
+          COMPATIBILITY_RESULT: ${{ needs.source.outputs.compatibility }}
+        run: test "$COMPATIBILITY_RESULT" = success
 
   security:
     runs-on: ubuntu-24.04
@@ -92,8 +116,9 @@ jobs:
     if: >-
       always() && !cancelled() && needs.source.result == 'success' &&
       (inputs.platform == 'both' || inputs.platform == 'android') &&
-      (inputs.android_signing != 'upload-key' || needs.security.result == 'success')
-    needs: [source, security]
+      (inputs.android_signing != 'upload-key' ||
+      (needs.security.result == 'success' && needs.compatibility.result == 'success'))
+    needs: [source, security, compatibility]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment: mobile-internal
@@ -142,6 +167,7 @@ jobs:
           BC_ANDROID_SIGNING: ${{ inputs.android_signing || 'unsigned' }}
           ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
           BC_SECURITY_AUDIT: ${{ needs.security.result }}
+          BC_EXPO_COMPATIBILITY: ${{ needs.compatibility.result }}
         run: python3 scripts/internal-build/validate.py android
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -158,7 +184,7 @@ jobs:
     if: >-
       always() && !cancelled() && needs.source.result == 'success' &&
       (inputs.platform == 'both' || inputs.platform == 'ios')
-    needs: [source, security]
+    needs: [source, security, compatibility]
     runs-on: macos-26
     timeout-minutes: 90
     env:
@@ -190,6 +216,7 @@ jobs:
       - name: Verify and label archive (no IPA export)
         env:
           BC_SECURITY_AUDIT: ${{ needs.security.result }}
+          BC_EXPO_COMPATIBILITY: ${{ needs.compatibility.result }}
         run: python3 scripts/internal-build/validate.py ios
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

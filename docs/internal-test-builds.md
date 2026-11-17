@@ -51,6 +51,11 @@ unsigned diagnostic compilation may continue; its metadata records the failed
 audit and it cannot be uploaded to a store. This is not an audit waiver, and the
 existing Source checks audit remains unchanged.
 
+Expo's live compatibility recommendation is also a separate hard gate for signing;
+its report remains an artifact and a failed `compatibility` job. Unsigned builds
+can diagnose the requested, unchanged source even when the live recommendations
+have advanced. Their metadata explicitly records this failure as well.
+
 ## Android signing contract (account-independent)
 
 Use GitHub environment **`mobile-internal`** for the Android job. An authorized
@@ -111,6 +116,14 @@ advisory GHSA-fc5q-39xc-vjpf and inherited tooling dependents. Mobile tests pass
 Resolve and review the locked build-tool dependency advisories before a signed
 candidate can be produced. Do not use `npm audit fix --force` (its proposed Expo
 downgrade is outside this build-preparation task), or bypass the audit gate.
+The [picomatch advisory](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), updated
+November 17, lists no patched release. A reviewed remediation or separately
+approved security decision is required; no exception is implemented here.
+
+**Expo compatibility:** the November 18 live check recommends Expo ~58.0.26,
+React Native 0.88.1, and matching patches for 13 other packages. The pinned source
+remains unchanged and is not represented as passing that check. Updating runtime
+dependencies and repeating acceptance needs separate authorization/review.
 
 **Android signing:** the four environment secrets and certificate fingerprint
 above; validate a successful signed build before requesting Play upload.
