@@ -1,12 +1,12 @@
-name: Internal native builds (NO STORE UPLOAD)
+name: Internal native builds / exact TestFlight upload
 
 on:
   workflow_dispatch:
     inputs:
       platform:
-        description: Native platform to validate (never uploads)
+        description: Native build platform, or explicit upload-only of an existing verified IPA
         type: choice
-        options: [both, android, ios]
+        options: [both, android, ios, testflight-upload]
         default: both
         required: true
       build_number:
@@ -32,6 +32,26 @@ on:
         options: [unsigned, testflight]
         default: unsigned
         required: true
+      source_run_id:
+        description: Upload-only — successful signed-iOS source run ID
+        type: string
+        default: ''
+      source_sha:
+        description: Upload-only — approved full source commit SHA
+        type: string
+        default: ''
+      artifact_id:
+        description: Upload-only — exact signed-iOS artifact ID
+        type: string
+        default: ''
+      ipa_sha256:
+        description: Upload-only — independently reviewed exact IPA SHA-256
+        type: string
+        default: ''
+      confirm_internal_only:
+        description: Upload-only — authorize one TestFlight INTERNAL upload, never public submission
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -49,6 +69,7 @@ env:
 
 jobs:
   source:
+    if: inputs.platform != 'testflight-upload'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -102,6 +123,7 @@ jobs:
           done
 
   compatibility:
+    if: inputs.platform != 'testflight-upload'
     needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -112,6 +134,7 @@ jobs:
         run: test "$COMPATIBILITY_RESULT" = success
 
   security:
+    if: inputs.platform != 'testflight-upload'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -134,6 +157,19 @@ jobs:
           path: build/security/*.json
           if-no-files-found: error
           retention-days: 7
+
+  testflight-upload:
+    if: inputs.platform == 'testflight-upload'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/testflight-upload.yml
+    with:
+      source_run_id: ${{ inputs.source_run_id }}
+      source_sha: ${{ inputs.source_sha }}
+      artifact_id: ${{ inputs.artifact_id }}
+      ipa_sha256: ${{ inputs.ipa_sha256 }}
+      confirm_internal_only: ${{ inputs.confirm_internal_only }}
 
   android:
     # Unsigned diagnostics may compile with a FAILED audit, but signing cannot.

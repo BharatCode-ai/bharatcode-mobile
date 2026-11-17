@@ -1,6 +1,23 @@
 name: Upload exact IPA to TestFlight INTERNAL ONLY
 
 on:
+  workflow_call:
+    inputs:
+      source_run_id:
+        type: string
+        required: true
+      source_sha:
+        type: string
+        required: true
+      artifact_id:
+        type: string
+        required: true
+      ipa_sha256:
+        type: string
+        required: true
+      confirm_internal_only:
+        type: boolean
+        required: true
   workflow_dispatch:
     inputs:
       source_run_id:

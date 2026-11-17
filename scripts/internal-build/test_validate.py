@@ -230,7 +230,10 @@ class WorkflowPolicy(unittest.TestCase):
         self.assertNotRegex(self.workflow, r"\b(?:contents|packages|id-token):\s*write")
         actions = re.findall(r"uses:\s*([^\s]+)", self.workflow)
         self.assertTrue(actions)
-        self.assertTrue(all(re.fullmatch(r"actions/[a-z-]+@[0-9a-f]{40}", action) for action in actions))
+        # This one local reusable workflow resolves at the caller's exact commit;
+        # every external action must still be pinned to a full immutable SHA.
+        self.assertTrue(all(action == "./.github/workflows/testflight-upload.yml" or
+                            re.fullmatch(r"actions/[a-z-]+@[0-9a-f]{40}", action) for action in actions))
 
     def test_no_store_upload_command(self):
         self.assertNotRegex(self.workflow, r"eas\s+submit|fastlane\s+(?:supply|pilot)|upload_to_(?:play_store|app_store)|gh\s+release\s+create|altool.*--upload")

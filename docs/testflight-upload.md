@@ -1,21 +1,30 @@
 # Upload an exact IPA to TestFlight internal testing
 
-This is a separate, manual **upload-only** workflow. It does not run npm, Pods,
+This is a separate, manual **upload-only** job. It does not run npm, Pods,
 Xcode archive/export, signing, a new audit, or another Metro export. It uploads
-the unchanged IPA from a successful reviewed `internal-build.yml` run. Android
-and the build workflow are unchanged. No public submission or external-tester
-distribution is implemented.
+the unchanged IPA from a successful reviewed `internal-build.yml` run. The
+registered workflow now routes explicit `platform=testflight-upload` to the
+existing upload-only workflow through `workflow_call`; source, security,
+compatibility and every native-build job are skipped for that selection. Normal
+build selections cannot enter the upload job, and `platform=both` remains the
+default. No public submission or external-tester distribution is implemented.
 
 ## Parent review and dispatch inputs
 
-Review `.github/workflows/testflight-upload.yml` and
+Review `.github/workflows/internal-build.yml`, `.github/workflows/testflight-upload.yml` and
 `scripts/internal-build/testflight_upload.py` before committing/pushing or
 dispatching. Local fixtures are not proof of hosted Apple CLI acceptance.
-If GitHub requires registration of the new branch-only workflow, coordinate that
-separately; do not add an automatic trigger or merge merely to register it.
+Dispatch the already registered `internal-build.yml` on the reviewed preparation
+branch with `platform=testflight-upload`. The local reusable-workflow reference
+uses that same commit and does not need separate workflow registration. No main
+change, automatic trigger, bootstrap run, build or re-signing is required. No
+secrets are passed or inherited by the caller. The called upload job selects
+`mobile-internal-ios` and consumes its environment-only ASC secret directly;
+no repository-level copy is requested. Missing credentials still block upload.
 
 Supply `source_run_id`, the approved full `source_sha`, exact `artifact_id`, and
-an independently reviewed `ipa_sha256`. There is no latest-artifact lookup or
+an independently reviewed `ipa_sha256`. These fields are optional for ordinary
+builds but mandatory in the upload helper. There is no latest-artifact lookup or
 default source run. Explicitly confirm `confirm_internal_only=true`. The source
 run must be successful, with the signed-iOS artifact and receipt from its current
 attempt. A build rerun's attempt 2 is valid; the upload job itself rejects reruns.
@@ -63,11 +72,14 @@ processing, export compliance, internal tester availability or device QA passed.
 
 ## Local validation and official references
 
-Seven upload-specific fixture tests use the real builder's `verify-export`
+Eight upload-specific fixture tests use the real builder's `verify-export`
 receipt writer with mocked native tools and a synthetic IPA. They cover source
 attempt 2, hash/receipt tampering, JWT encoding, exact-app/unused-build reads,
 redirect rejection, success/failure/timeout single-attempt behavior, private-key
-cleanup and workflow scope. No real key, Apple request or native build is used.
+cleanup and workflow scope. The routing regression evaluates the actual job
+conditions: upload-only cannot schedule builds even with successful dependencies,
+and normal/default builds cannot schedule upload. No real key, Apple request or
+native build is used.
 
 Apple's [altool guide](https://help.apple.com/asc/appsaltool/en.lproj/static.html)
 documents the command/argument forms, API-key authentication and private-key

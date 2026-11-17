@@ -3,7 +3,11 @@
 Allowed destinations are **Google Play INTERNAL** and **Apple TestFlight only**.
 Never publish/promote to production, open/closed Play tracks, or a public App Store
 release. This workflow does not contact either store, make a GitHub release,
-generate signing keys, register apps, or change the default branch.
+generate signing keys, register apps, or change the default branch when running
+the normal `both`, `android` or `ios` build modes. The separate explicit
+`platform=testflight-upload` route uploads an existing reviewed IPA only; see
+[exact TestFlight upload](testflight-upload.md). It skips all build/check jobs
+and never rebuilds or re-signs. Ordinary build modes cannot upload.
 
 ## Identity and source
 
@@ -20,7 +24,7 @@ generate signing keys, register apps, or change the default branch.
 
 ## Run manually
 
-`.github/workflows/internal-build.yml` is a build-only workflow. All heavy npm,
+The normal platform modes of `.github/workflows/internal-build.yml` are build-only. All heavy npm,
 Gradle, CocoaPods and Xcode work runs on hosted runners. Do not install
 node_modules or run native builds in the disk-constrained local WSL checkout.
 

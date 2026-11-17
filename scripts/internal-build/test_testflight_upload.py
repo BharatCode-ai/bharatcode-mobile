@@ -9,9 +9,11 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
@@ -241,6 +243,50 @@ class TestFlightUpload(unittest.TestCase):
             self.assertNotIn(forbidden, workflow)
         self.assertEqual(workflow.count("ASC_API_KEY_P8_BASE64: ${{ secrets."), 1)
         self.assertIn("path: ${{ runner.temp }}/bharatcode-testflight-upload/upload-receipt.json", workflow)
+
+    def test_registered_workflow_routes_upload_only_without_any_build_jobs(self):
+        workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/internal-build.yml").read_text()
+        self.assertIn("options: [both, android, ios, testflight-upload]\n        default: both", workflow)
+        self.assertIn("type: boolean\n        default: false", workflow)
+        blocks = re.split(r"(?m)^  (?=[a-z][a-z-]*:\n)", workflow.split("\njobs:\n", 1)[1])[1:]
+        jobs = {block.split(":", 1)[0]: block for block in blocks}
+        self.assertEqual(set(jobs), {"source", "security", "compatibility", "android", "ios", "ios-signed", "testflight-upload"})
+        needs = SimpleNamespace(**{name: SimpleNamespace(result="success") for name in ("source", "security", "compatibility")})
+        # Evaluate the actual checked-in job conditions in the most permissive
+        # dependency state (all gates successful, not cancelled), not a separate
+        # routing implementation. Only the existing expression subset is used.
+        for platform, signing, expected in (
+            ("testflight-upload", "unsigned", {"testflight-upload"}),
+            ("testflight-upload", "testflight", {"testflight-upload"}),
+            ("both", "unsigned", {"source", "security", "compatibility", "android", "ios"}),
+            ("android", "unsigned", {"source", "security", "compatibility", "android"}),
+            ("ios", "unsigned", {"source", "security", "compatibility", "ios"}),
+            ("ios", "testflight", {"source", "security", "compatibility", "ios-signed"}),
+        ):
+            inputs = SimpleNamespace(platform=platform, ios_signing=signing, android_signing="upload-key")
+            enabled = set()
+            for name, block in jobs.items():
+                condition = re.search(r"(?m)^    if: (.+)$", block).group(1)
+                if condition == ">-":
+                    condition = re.search(r"(?m)^    if: >-\n((?:      .*\n)+)", block).group(1)
+                condition = " ".join(condition.split()).replace("!cancelled()", "True").replace("always()", "True")
+                condition = condition.replace("&&", " and ").replace("||", " or ")
+                if eval(condition, {"__builtins__": {}}, {"inputs": inputs, "needs": needs}): enabled.add(name)
+            with self.subTest(platform=platform, signing=signing): self.assertEqual(enabled, expected)
+        call = jobs["testflight-upload"]
+        self.assertIn("uses: ./.github/workflows/testflight-upload.yml", call)
+        self.assertNotIn("needs:", call)
+        self.assertNotIn("secrets:", call)
+        self.assertNotIn("secrets.", call)
+        self.assertIn("actions: read", call)
+        called = (Path(__file__).resolve().parents[2] / ".github/workflows/testflight-upload.yml").read_text()
+        self.assertNotIn("secrets:", called.split("\npermissions:", 1)[0])
+        self.assertNotIn("secrets: inherit", called)
+        upload_job = called.split("\n  upload:\n", 1)[1]
+        self.assertIn("environment: mobile-internal-ios", upload_job)
+        self.assertEqual(upload_job.count("ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}"), 1)
+        for name in ("source_run_id", "source_sha", "artifact_id", "ipa_sha256", "confirm_internal_only"):
+            self.assertIn(name + ": ${{ inputs." + name + " }}", call)
 
 
 if __name__ == "__main__":
