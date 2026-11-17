@@ -1,9 +1,11 @@
 """Synthetic fixtures only; no keys, Apple access, or native tool invocation."""
 
 import copy
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -190,6 +192,67 @@ class IOSSigningGuards(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertNotIn(env["IOS_TEAM_ID"], result.stdout + result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("[prerequisites]: Missing/invalid IOS_TEAM_ID", result.stderr)
+
+    def test_cli_suppresses_untrusted_exception_text_but_reports_fixed_stage(self):
+        for error in (ValueError("SENSITIVE-PARSER-DATA"), KeyError("SENSITIVE-KEY"),
+                      TypeError("SENSITIVE-VALUE"), OSError("SENSITIVE-PATH"),
+                      plistlib.InvalidFileException("SENSITIVE-PLIST")):
+            with self.subTest(error=type(error).__name__):
+                output, errors = io.StringIO(), io.StringIO()
+                def fail():
+                    ios.stage("install/profile-cms-decode")
+                    raise error
+                with patch.object(ios, "main", side_effect=fail), redirect_stdout(output), redirect_stderr(errors):
+                    self.assertEqual(ios.cli(), 1)
+                self.assertIn("[install/profile-cms-decode]", errors.getvalue())
+                self.assertNotIn("SENSITIVE", output.getvalue() + errors.getvalue())
+                self.assertNotIn("Traceback", errors.getvalue())
+
+    def test_install_diagnostics_distinguish_early_failures_without_exposing_inputs(self):
+        cases = (
+            ("help-exit", "xcode-help", "Native tool failed (exit 64;"),
+            ("help-options", "xcode-export-options", "Selected Xcode lacks required internal-only export options"),
+            ("version", "xcode-version", "Unexpected Xcode version"),
+            ("profile-decode", "profile-cms-decode", "details suppressed"),
+            ("profile-policy", "profile-policy", "Profile team mismatch"),
+            ("trust-exit", "certificate-trust", "Native tool failed (exit 1;"),
+            ("import-exit", "p12-import", "Native tool failed (exit 1;"),
+        )
+        for case, label, message in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as folder:
+                profile = copy.deepcopy(self.profile)
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
+                profile.update(CreationDate=now - timedelta(days=1), ExpirationDate=now + timedelta(days=1))
+                if case == "profile-policy": profile["TeamIdentifier"] = ["SENSITIVE-WRONG-TEAM"]
+                calls = []
+                def fake(args, **kwargs):
+                    calls.append(args)
+                    code, output = 0, b""
+                    if args[:2] == ["xcodebuild", "-help"]:
+                        output = b"testFlightInternalTestingOnly app-store-connect manageAppVersionAndBuildNumber"
+                        if case == "help-exit": code = 64
+                        if case == "help-options": output = b"SENSITIVE-HELP"
+                    elif args[:2] == ["xcodebuild", "-version"]:
+                        output = b"SENSITIVE-VERSION" if case == "version" else b"Xcode 26.6\nBuild version fixture"
+                    elif args[:2] == ["security", "cms"]:
+                        output = b"SENSITIVE-INVALID-PLIST" if case == "profile-decode" else plistlib.dumps(profile)
+                    elif args[:2] == ["security", "verify-cert"] and case == "trust-exit": code = 1
+                    elif args[:2] == ["security", "import"] and case == "import-exit": code = 1
+                    return subprocess.CompletedProcess(args, code, output, b"SENSITIVE-NATIVE-ERROR")
+                env = {**self.env, "RUNNER_TEMP": folder,
+                       ios.SECRETS[0]: "Zml4dHVyZQ==", ios.SECRETS[2]: "Zml4dHVyZQ=="}
+                output, errors = io.StringIO(), io.StringIO()
+                with patch.dict(os.environ, env, clear=True), patch.object(ios.subprocess, "run", side_effect=fake), \
+                     patch.object(ios, "main", side_effect=ios.install), redirect_stdout(output), redirect_stderr(errors):
+                    self.assertEqual(ios.cli(), 1)
+                self.assertEqual(output.getvalue().splitlines()[-1], "iOS stage: install/" + label)
+                self.assertIn("[install/" + label + "]", errors.getvalue())
+                self.assertIn(message, errors.getvalue())
+                self.assertNotIn("SENSITIVE", output.getvalue() + errors.getvalue())
+                self.assertNotIn("Traceback", errors.getvalue())
+                if case != "import-exit":
+                    self.assertFalse(any(args[:2] == ["security", "import"] for args in calls))
 
     def test_cli_writes_private_export_policy_without_overwriting(self):
         with tempfile.TemporaryDirectory() as folder:

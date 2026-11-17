@@ -29,11 +29,23 @@ ENTITLEMENTS = {
     "application-identifier", "com.apple.developer.team-identifier",
     "get-task-allow", "beta-reports-active", "keychain-access-groups",
 }
+CURRENT_STAGE = "startup"
+
+
+class PolicyError(ValueError):
+    """Only audited policy messages, never input values or native tool output."""
+
+
+def stage(label):
+    # Callers supply fixed labels (or argparse's fixed command choices), not inputs.
+    global CURRENT_STAGE
+    CURRENT_STAGE = label
+    print("iOS stage: " + label, flush=True)
 
 
 def require(condition, message):
     if not condition:
-        raise ValueError(message)
+        raise PolicyError(message)
 
 
 def identifiers(env):
@@ -142,7 +154,8 @@ def export_options(profile, env, now=None):
 
 def run(args, data=None):
     result = subprocess.run([str(arg) for arg in args], input=data, capture_output=True, check=False)
-    require(result.returncode == 0, "Native tool failed (details suppressed): " + str(args[0]))
+    require(result.returncode == 0,
+            f"Native tool failed (exit {result.returncode}; output and arguments suppressed)")
     return result
 
 
@@ -168,45 +181,67 @@ def decode_profile(path):
 
 
 def install():
+    stage("install/prerequisites")
     prerequisites(os.environ)
+    stage("install/xcode-help")
     help_result = run(["xcodebuild", "-help"])
     help_text = (help_result.stdout + help_result.stderr).decode(errors="replace")
+    stage("install/xcode-export-options")
     require(all(key in help_text for key in ("testFlightInternalTestingOnly", "app-store-connect",
                                              "manageAppVersionAndBuildNumber")),
             "Selected Xcode lacks required internal-only export options")
+    stage("install/xcode-version")
     require(run(["xcodebuild", "-version"]).stdout.startswith(b"Xcode 26.6\n"), "Unexpected Xcode version")
+    stage("install/temporary-directory")
     root = signing_dir()
     root.mkdir(mode=0o700)  # Never reuse another run's keys or state.
     profile_file = root / "approved.mobileprovision"
     p12 = root / "approved.p12"
+    stage("install/profile-base64")
     private_file(profile_file, base64.b64decode(os.environ[SECRETS[2]], validate=True))
+    stage("install/p12-base64")
     private_file(p12, base64.b64decode(os.environ[SECRETS[0]], validate=True))
+    stage("install/profile-cms-decode")
     profile = decode_profile(profile_file)
+    stage("install/profile-policy")
     certificate = validate_profile(profile, os.environ)
+    stage("install/profile-certificate-files")
     private_file(root / "profile.plist", plistlib.dumps(profile))
     private_file(root / "certificate.der", certificate)
+    stage("install/certificate-trust")
     run(["security", "verify-cert", "-c", root / "certificate.der", "-p", "codeSign"])
+    stage("install/export-policy")
     options = export_options(profile, os.environ)
     private_file(root / "ExportOptions.plist", plistlib.dumps(options))
     keychain = root / "signing.keychain-db"
+    stage("install/keychain-search-backup")
     old_search = shlex.split(run(["security", "list-keychains", "-d", "user"]).stdout.decode())
     private_file(root / "keychain-search.json", json.dumps(old_search).encode())
     password = secrets.token_urlsafe(32)  # Ephemeral keychain password, not a signing key.
+    stage("install/keychain-create")
     run(["security", "create-keychain", "-p", password, keychain])
+    stage("install/keychain-settings")
     run(["security", "set-keychain-settings", "-lut", "7200", keychain])
+    stage("install/keychain-unlock")
     run(["security", "unlock-keychain", "-p", password, keychain])
+    stage("install/p12-import")
     run(["security", "import", p12, "-k", keychain, "-P", os.environ[SECRETS[1]],
          "-T", "/usr/bin/codesign", "-T", "/usr/bin/security"])
+    stage("install/key-partition-list")
     run(["security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", password, keychain])
+    stage("install/distribution-identity")
     identities = run(["security", "find-identity", "-v", "-p", "codesigning", keychain]).stdout.decode()
     expected = options["signingCertificate"]
     require(re.search(r'\b' + expected + r'\s+"(?:Apple Distribution|iPhone Distribution):', identities),
             "Approved valid distribution identity/private key missing")
+    stage("install/keychain-search-update")
     run(["security", "list-keychains", "-d", "user", "-s", keychain, *old_search])
+    stage("install/profile-install")
     target = profile_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     private_file(target, profile_file.read_bytes())  # Refuse to overwrite any existing profile.
     private_file(root / "profile-installed", b"yes")
+    stage("install/p12-remove")
     p12.unlink()  # Private key now exists only inside the temporary keychain.
 
 
@@ -394,6 +429,7 @@ def main():
     options.add_argument("profile", type=Path, help="CMS-decoded approved profile plist")
     options.add_argument("output", type=Path, help="New ExportOptions.plist under runner temp")
     args = parser.parse_args()
+    stage(args.command)
     if args.command in ("prerequisites", "export-options"):
         prerequisites(os.environ)
     if args.command == "export-options":
@@ -409,10 +445,21 @@ def main():
     print("iOS step passed: " + args.command + "; no store upload performed.")
 
 
-if __name__ == "__main__":
+def cli():
     try:
         main()
+    except PolicyError as error:
+        # require() messages use literals, fixed field names/cleanup labels, or
+        # numeric exit codes only. Do NOT print arbitrary ValueError messages:
+        # parsers and security_gate may include input data in those exceptions.
+        print(f"iOS policy validation failed [{CURRENT_STAGE}]: {error}", file=sys.stderr)
+        return 1
     except (ValueError, KeyError, TypeError, OSError, plistlib.InvalidFileException):
-        # No decoded profiles, certificate identities or supplied secret data in logs.
-        print("iOS policy validation failed; inspect inputs privately.", file=sys.stderr)
-        sys.exit(1)
+        print(f"iOS input/tool failure [{CURRENT_STAGE}]; details suppressed; inspect inputs privately.",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
