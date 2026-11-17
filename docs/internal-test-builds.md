@@ -132,8 +132,8 @@ above; validate a successful signed build before requesting Play upload.
 the exact package ID, Play App Signing/upload-certificate registration, confirmation
 that versionCode 1 is unused, required store declarations, internal tester list,
 and authorized manual INTERNAL-track upload. No API token is needed for a browser
-upload. At the November 18 browser check, SomewhatUseful had no BharatCode listing;
-the owner is considering a new publishing account. This workflow assumes neither.
+upload. The publishing account has not been selected/verified for this app, and no
+matching listing is verified. This workflow assumes no specific developer account.
 
 **Apple signing:** access to the correct Apple Developer Program team; an App ID
 for `ai.bharatcode.bharatcodeMobile`; an approved Apple Distribution certificate

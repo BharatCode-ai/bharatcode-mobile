@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -95,6 +96,14 @@ class BuildGuards(unittest.TestCase):
     def test_changed_native_template_fails_closed(self):
         with self.assertRaises(ValueError):
             v.release_gradle("unrecognized template", "unsigned")
+
+    def test_expo_generated_single_quotes_and_assignment(self):
+        for form in (f"applicationId '{v.ANDROID_ID}'", f'applicationId = "{v.ANDROID_ID}"'):
+            with self.subTest(form=form):
+                self.assertIn("signingConfig null", v.release_gradle(form + "\nsigningConfig signingConfigs.debug\n", "unsigned"))
+        wrong = f"applicationId '{v.ANDROID_ID}.qa'\nsigningConfig signingConfigs.debug\n"
+        with self.assertRaisesRegex(ValueError, "applicationId"):
+            v.release_gradle(wrong, "unsigned")
 
     def test_no_missing_credentials_fallback(self):
         with self.assertRaisesRegex(ValueError, "Missing signing secrets"):
@@ -206,6 +215,31 @@ class BuildGuards(unittest.TestCase):
         self.assertFalse(info["nativeAcceptanceTested"])
         self.assertEqual(info["applicationId"], v.ANDROID_ID)
         self.assertEqual(len(info["sha256"]), 64)
+
+
+class WorkflowPolicy(unittest.TestCase):
+    def setUp(self):
+        self.workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/internal-build.yml").read_text()
+
+    def test_manual_only_no_automatic_release_trigger(self):
+        triggers = self.workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertEqual(re.findall(r"^  ([a-z_]+):$", triggers, re.M), ["workflow_dispatch"])
+
+    def test_read_only_token_and_pinned_actions(self):
+        self.assertIn("permissions:\n  contents: read", self.workflow)
+        self.assertNotRegex(self.workflow, r"\b(?:contents|packages|id-token):\s*write")
+        actions = re.findall(r"uses:\s*([^\s]+)", self.workflow)
+        self.assertTrue(actions)
+        self.assertTrue(all(re.fullmatch(r"actions/[a-z-]+@[0-9a-f]{40}", action) for action in actions))
+
+    def test_no_store_upload_command(self):
+        self.assertNotRegex(self.workflow, r"eas\s+submit|fastlane\s+(?:supply|pilot)|upload_to_(?:play_store|app_store)|gh\s+release\s+create|altool.*--upload")
+
+    def test_signed_build_requires_both_readiness_gates(self):
+        self.assertIn("needs.security.result == 'success' && needs.compatibility.result == 'success'", self.workflow)
+        self.assertIn("environment: mobile-internal", self.workflow)
+        for name in v.SIGNING_SECRETS:
+            self.assertIn("secrets." + name, self.workflow)
 
 
 if __name__ == "__main__":

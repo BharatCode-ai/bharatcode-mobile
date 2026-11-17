@@ -88,7 +88,8 @@ def install_key():
 
 
 def release_gradle(source, mode):
-    require(f'applicationId "{ANDROID_ID}"' in source, "Unexpected Android applicationId")
+    ids = re.findall(r'''(?m)^[ \t]*applicationId[ \t]*(?:=[ \t]*)?(['"])([^'"\r\n]+)\1[ \t]*$''', source)
+    require([value for _, value in ids] == [ANDROID_ID], "Unexpected Android applicationId")
     require(mode in ("unsigned", "upload-key"), "Unknown Android signing mode")
     require("BC_INTERNAL_BUILD" not in source, "Signing guard already installed")
     require("signingConfig signingConfigs.debug" in source, "Review changed Expo signing template")
