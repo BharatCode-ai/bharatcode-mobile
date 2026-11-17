@@ -20,6 +20,12 @@ on:
         options: [unsigned, upload-key]
         default: unsigned
         required: true
+      ios_runner:
+        description: Standard macOS 26 host (both use Xcode 26.6)
+        type: choice
+        options: [macos-26, macos-26-intel]
+        default: macos-26
+        required: true
 
 permissions:
   contents: read
@@ -185,7 +191,7 @@ jobs:
       always() && !cancelled() && needs.source.result == 'success' &&
       (inputs.platform == 'both' || inputs.platform == 'ios')
     needs: [source, security, compatibility]
-    runs-on: macos-26
+    runs-on: ${{ inputs.ios_runner || 'macos-26' }}
     timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer

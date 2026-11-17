@@ -35,6 +35,11 @@ gh workflow run internal-build.yml --repo BharatCode-ai/bharatcode-mobile \
   -f platform=android -f build_number=1 -f android_signing=upload-key
 ```
 
+For an iOS-only attempt on the other standard hosted architecture, select
+`platform=ios` and `ios_runner=macos-26-intel` (default: `macos-26`, ARM64).
+Both use the explicitly selected Xcode 26.6. This changes only the build host,
+not the iPhoneOS target, app identity, signing state, or delivery permissions.
+
 New branch-only workflows may require a first run before GitHub permits manual
 dispatch. If needed, a temporary bootstrap trigger restricted to the preparation
 branch may validate unsigned builds; remove it before final handoff. Do not merge
