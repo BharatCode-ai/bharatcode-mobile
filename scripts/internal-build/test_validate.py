@@ -245,5 +245,21 @@ class WorkflowPolicy(unittest.TestCase):
         self.assertIn("inputs.ios_runner == 'macos-26' && 'macos-26' || 'macos-26-intel'", self.workflow)
 
 
+class DependencyManifestPolicy(unittest.TestCase):
+    def setUp(self):
+        root = Path(__file__).resolve().parents[2]
+        self.package = json.loads((root / "package.json").read_text())
+        self.lock = json.loads((root / "package-lock.json").read_text())
+
+    def test_lockfile_root_matches_manifest(self):
+        root = self.lock["packages"][""]
+        for field in ("version", "dependencies", "devDependencies", "engines"):
+            self.assertEqual(root[field], self.package[field], field)
+
+    def test_existing_security_backport_is_not_replaced(self):
+        self.assertEqual(self.package["devDependencies"]["node-forge"], "file:vendor/node-forge")
+        self.assertEqual(self.package["overrides"]["node-forge"], "$node-forge")
+
+
 if __name__ == "__main__":
     unittest.main()

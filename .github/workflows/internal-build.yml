@@ -106,14 +106,15 @@ jobs:
         with:
           node-version: '24'
       - name: Audit locked dependencies (hard gate for signing)
+        env:
+          BC_INTERNAL_SECURITY_EXCEPTION: ${{ inputs.platform == 'android' && inputs.android_signing == 'upload-key' && '20261118-picomatch-internal' || '' }}
         run: |
-          mkdir -p build/security
-          npm audit --package-lock-only --audit-level=high --json > build/security/npm-audit.json
+          python3 scripts/internal-build/security_gate.py audit
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: dependency-audit-${{ github.sha }}-${{ github.run_attempt }}
-          path: build/security/npm-audit.json
+          path: build/security/*.json
           if-no-files-found: error
           retention-days: 7
 
@@ -174,7 +175,9 @@ jobs:
           ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
           BC_SECURITY_AUDIT: ${{ needs.security.result }}
           BC_EXPO_COMPATIBILITY: ${{ needs.compatibility.result }}
-        run: python3 scripts/internal-build/validate.py android
+        run: |
+          python3 scripts/internal-build/security_gate.py runtime android/app/build/intermediates/sourcemaps/react/release/index.android.bundle.packager.map
+          python3 scripts/internal-build/validate.py android
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-${{ inputs.android_signing || 'unsigned' }}-INTERNAL-ONLY-${{ github.sha }}-${{ github.run_attempt }}

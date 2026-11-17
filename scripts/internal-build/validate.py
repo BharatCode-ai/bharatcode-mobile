@@ -197,6 +197,7 @@ def record(platform, artifact):
         "sha256": digest,
         "signing": "upload-key" if signed else "UNSIGNED",
         "dependencyAudit": os.environ.get("BC_SECURITY_AUDIT", "not-run"),
+        "internalSecurityPolicy": "20261118-picomatch-internal; expires 2026-12-02; not a clean audit" if signed else None,
         "expoCompatibility": os.environ.get("BC_EXPO_COMPATIBILITY", "not-run"),
         "certificateSha256": expected_fingerprint() if signed else None,
         "storeUploadable": False,
@@ -216,6 +217,8 @@ def record(platform, artifact):
         "Never public release. iOS is TestFlight only; Android is Play INTERNAL only.\n"
     )
     note += f"Dependency audit: {metadata['dependencyAudit']}. See the separate audit artifact.\n"
+    if signed:
+        note += "Temporary picomatch build-tool exception expires 2026-12-02. Not a clean audit; runtime exclusion is verified separately.\n"
     note += f"Expo compatibility: {metadata['expoCompatibility']}. See the separate compatibility artifact.\n"
     (artifact.parent / "READ-ME-FIRST.txt").write_text(note)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
