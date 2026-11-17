@@ -23,8 +23,8 @@ on:
       ios_runner:
         description: Standard macOS 26 host (both use Xcode 26.6)
         type: choice
-        options: [macos-26, macos-26-intel]
-        default: macos-26
+        options: [macos-26-intel, macos-26]
+        default: macos-26-intel
         required: true
 
 permissions:
@@ -191,7 +191,8 @@ jobs:
       always() && !cancelled() && needs.source.result == 'success' &&
       (inputs.platform == 'both' || inputs.platform == 'ios')
     needs: [source, security, compatibility]
-    runs-on: ${{ inputs.ios_runner || 'macos-26' }}
+    # Map even API-supplied input to an allowlisted hosted runner, never self-hosted.
+    runs-on: ${{ inputs.ios_runner == 'macos-26' && 'macos-26' || 'macos-26-intel' }}
     timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer

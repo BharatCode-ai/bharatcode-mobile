@@ -36,9 +36,11 @@ gh workflow run internal-build.yml --repo BharatCode-ai/bharatcode-mobile \
 ```
 
 For an iOS-only attempt on the other standard hosted architecture, select
-`platform=ios` and `ios_runner=macos-26-intel` (default: `macos-26`, ARM64).
+`platform=ios` and `ios_runner=macos-26` (ARM64; default: `macos-26-intel`).
 Both use the explicitly selected Xcode 26.6. This changes only the build host,
 not the iPhoneOS target, app identity, signing state, or delivery permissions.
+Intel is the default because GitHub could not acquire an ARM64 runner for the
+initial validation attempt and reported hosted ARM64 capacity constraints.
 
 New branch-only workflows may require a first run before GitHub permits manual
 dispatch. If needed, a temporary bootstrap trigger restricted to the preparation
@@ -133,12 +135,13 @@ dependencies and repeating acceptance needs separate authorization/review.
 **Android signing:** the four environment secrets and certificate fingerprint
 above; validate a successful signed build before requesting Play upload.
 
-**Google Play:** publishing-account choice and access, a BharatCode app record with
+**Google Play:** access to the selected publishing account, a free BharatCode app record with
 the exact package ID, Play App Signing/upload-certificate registration, confirmation
 that versionCode 1 is unused, required store declarations, internal tester list,
 and authorized manual INTERNAL-track upload. No API token is needed for a browser
-upload. The publishing account has not been selected/verified for this app, and no
-matching listing is verified. This workflow assumes no specific developer account.
+upload. The owner has selected the existing publishing account; listing creation
+and upload-certificate registration remain with the release delegate. This workflow
+stores no developer-account identifier and assumes no account-specific API access.
 
 **Apple signing:** access to the correct Apple Developer Program team; an App ID
 for `ai.bharatcode.bharatcodeMobile`; an approved Apple Distribution certificate

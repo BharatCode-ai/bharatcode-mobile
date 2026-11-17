@@ -241,6 +241,9 @@ class WorkflowPolicy(unittest.TestCase):
         for name in v.SIGNING_SECRETS:
             self.assertIn("secrets." + name, self.workflow)
 
+    def test_runner_input_is_mapped_to_hosted_allowlist(self):
+        self.assertIn("inputs.ios_runner == 'macos-26' && 'macos-26' || 'macos-26-intel'", self.workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
