@@ -9,7 +9,7 @@ generate signing keys, register apps, or change the default branch.
 
 - Android application ID: `ai.bharatcode.bharatcode_mobile`.
 - iOS bundle ID: `ai.bharatcode.bharatcodeMobile`.
-- App version: `0.2.0`, Expo SDK 58.0.21 / React Native 0.88.
+- App version: `0.2.0`, Expo SDK 58.0.26 / React Native 0.88.1.
 - Preparation starts from `fff96eb20923927b9f652a5040b91a35428f114e`.
 - `BC_INTERNAL_BUILD_NUMBER` is optional outside CI. In this workflow it is an
   explicit integer from 1 to 9999, mapped to Android versionCode and iOS
@@ -53,10 +53,16 @@ native jobs. Existing source CI also checks the Desktop connector and helpers.
 The native jobs run independently so one platform failure doesn't cancel the other.
 
 The separate `security` job audits the lockfile and retains its JSON report. An
-audit failure **keeps the workflow red and blocks upload-key signing**. Only
-unsigned diagnostic compilation may continue; its metadata records the failed
-audit and it cannot be uploaded to a store. This is not an audit waiver, and the
-existing Source checks audit remains unchanged.
+unapproved audit failure **keeps the workflow red and blocks upload-key signing**.
+For Android upload-key internal builds only, the owner approved a temporary
+exception for GHSA-fc5q-39xc-vjpf in picomatch 2.3.2/4.0.7, expiring December 2,
+2026 UTC. Raw findings and a warning remain visible; other high/critical findings,
+incomplete reports, unreviewed versions and expiry remain blocking. The actual
+native build's Metro source map must exclude the flagged glob tooling before
+artifact upload. See the [scoped decision](verification/android-internal-exception-2026-11-18.md).
+This is not a clean audit or public-release approval. Existing Source checks
+retain their ordinary unmodified audit policy. Unsigned diagnostic artifacts
+cannot be uploaded to a store.
 
 Expo's live compatibility recommendation is also a separate hard gate for signing;
 its report remains an artifact and a failed `compatibility` job. Unsigned builds
@@ -117,31 +123,35 @@ native installation. Do not uninstall or clear an existing app to bypass signing
 
 ## Exact remaining release prerequisites
 
-**Dependency security:** the first November 18 hosted run against the unchanged
-lockfile reported 78 findings (11 moderate, 67 high), including the picomatch ReDoS
-advisory GHSA-fc5q-39xc-vjpf and inherited tooling dependents. Mobile tests passed.
-Resolve and review the locked build-tool dependency advisories before a signed
-candidate can be produced. Do not use `npm audit fix --force` (its proposed Expo
-downgrade is outside this build-preparation task), or bypass the audit gate.
-The [picomatch advisory](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), updated
-November 17, lists no patched release. A reviewed remediation or separately
-approved security decision is required; no exception is implemented here.
+**Dependency security:** after the approved fixes, the local audit reported 69
+inherited high and 9 moderate findings; the hosted run reported 72 high and 9
+moderate because three additional dependencies inherited the same advisory.
+The direct advisory objects were unchanged: no new high advisory was accepted.
+The high findings are solely the reviewed picomatch advisory and its dependents.
+The narrow,
+time-limited internal-only exception above is implemented; it must not be
+broadened for public release or for a new finding. Do not use
+`npm audit fix --force` or replace the gate with an unconditional waiver.
 
-**Expo compatibility:** the November 18 live check recommends Expo ~58.0.26,
-React Native 0.88.1, and matching patches for 13 other packages. The pinned source
-remains unchanged and is not represented as passing that check. Updating runtime
-dependencies and repeating acceptance needs separate authorization/review.
+**Expo compatibility:** Expo 58.0.26, React Native 0.88.1 and their aligned
+dependencies pass the local and hosted compatibility checks. Exact signed-artifact
+native acceptance is still required; source checks alone do not establish it.
 
-**Android signing:** the four environment secrets and certificate fingerprint
-above; validate a successful signed build before requesting Play upload.
+**Android signing:** the dedicated upload key is provisioned in `mobile-internal`
+and backed up using Windows CurrentUser DPAPI. Key installation and the final AAB
+must match `ANDROID_UPLOAD_CERT_SHA256`. Validate a successful signed build before
+Play upload; never rotate the key merely to recover a build.
 
 **Google Play:** access to the selected publishing account, a free BharatCode app record with
 the exact package ID, Play App Signing/upload-certificate registration, confirmation
 that versionCode 1 is unused, required store declarations, internal tester list,
 and authorized manual INTERNAL-track upload. No API token is needed for a browser
-upload. The owner has selected the existing publishing account; listing creation
-and upload-certificate registration remain with the release delegate. This workflow
-stores no developer-account identifier and assumes no account-specific API access.
+upload. The original app record is retained and the empty duplicate was deleted
+with explicit approval. A dedicated four-person internal tester list is saved
+and selected; unrelated tester lists remain unselected. The internal track had
+no releases when inspected on November 18. Upload-certificate registration and
+final track acceptance remain with the release delegate. This workflow stores no
+developer-account identifier and assumes no account-specific API access.
 
 **Apple signing:** access to the correct Apple Developer Program team; an App ID
 for `ai.bharatcode.bharatcodeMobile`; an approved Apple Distribution certificate
