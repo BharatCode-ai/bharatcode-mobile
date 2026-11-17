@@ -2,6 +2,9 @@ name: Upload exact IPA to TestFlight INTERNAL ONLY
 
 on:
   workflow_call:
+    secrets:
+      ASC_API_KEY_P8_BASE64:
+        required: true
     inputs:
       source_run_id:
         type: string

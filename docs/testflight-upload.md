@@ -17,10 +17,16 @@ dispatching. Local fixtures are not proof of hosted Apple CLI acceptance.
 Dispatch the already registered `internal-build.yml` on the reviewed preparation
 branch with `platform=testflight-upload`. The local reusable-workflow reference
 uses that same commit and does not need separate workflow registration. No main
-change, automatic trigger, bootstrap run, build or re-signing is required. No
-secrets are passed or inherited by the caller. The called upload job selects
-`mobile-internal-ios` and consumes its environment-only ASC secret directly;
-no repository-level copy is requested. Missing credentials still block upload.
+change, automatic trigger, bootstrap run, build or re-signing is required. The
+caller explicitly forwards only `ASC_API_KEY_P8_BASE64` by name, and the reusable
+workflow declares that secret required. The called upload job selects
+`mobile-internal-ios`, which supplies the actual environment-secret value; no
+`secrets: inherit` or repository-level copy is used. GitHub requires this named
+forwarding even when the secret exists only in the environment. Without it,
+upload-only run `44201570040` received an empty value and stopped before contacting
+Apple. See [GitHub's reusable-workflow secret rules](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows#using-inputs-and-secrets-in-a-reusable-workflow).
+The required declaration checks forwarding, not whether the value is populated;
+missing/invalid key content still blocks upload in the helper.
 
 Supply `source_run_id`, the approved full `source_sha`, exact `artifact_id`, and
 an independently reviewed `ipa_sha256`. These fields are optional for ordinary
@@ -78,8 +84,10 @@ attempt 2, hash/receipt tampering, JWT encoding, exact-app/unused-build reads,
 redirect rejection, success/failure/timeout single-attempt behavior, private-key
 cleanup and workflow scope. The routing regression evaluates the actual job
 conditions: upload-only cannot schedule builds even with successful dependencies,
-and normal/default builds cannot schedule upload. No real key, Apple request or
-native build is used.
+and normal/default builds cannot schedule upload. It also requires the single
+named ASC secret mapping and required declaration, rejects blanket inheritance,
+and checks that the upload job retains its protected environment. No real key,
+Apple request or native build is used.
 
 Apple's [altool guide](https://help.apple.com/asc/appsaltool/en.lproj/static.html)
 documents the command/argument forms, API-key authentication and private-key

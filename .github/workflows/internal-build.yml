@@ -164,6 +164,8 @@ jobs:
       contents: read
       actions: read
     uses: ./.github/workflows/testflight-upload.yml
+    secrets:
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     with:
       source_run_id: ${{ inputs.source_run_id }}
       source_sha: ${{ inputs.source_sha }}

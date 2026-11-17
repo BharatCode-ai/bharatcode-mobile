@@ -276,12 +276,13 @@ class TestFlightUpload(unittest.TestCase):
         call = jobs["testflight-upload"]
         self.assertIn("uses: ./.github/workflows/testflight-upload.yml", call)
         self.assertNotIn("needs:", call)
-        self.assertNotIn("secrets:", call)
-        self.assertNotIn("secrets.", call)
+        self.assertEqual(call.split("    secrets:\n", 1)[1].split("    with:\n", 1)[0],
+                         "      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}\n")
         self.assertIn("actions: read", call)
         called = (Path(__file__).resolve().parents[2] / ".github/workflows/testflight-upload.yml").read_text()
-        self.assertNotIn("secrets:", called.split("\npermissions:", 1)[0])
-        self.assertNotIn("secrets: inherit", called)
+        declaration = called.split("  workflow_call:\n", 1)[1].split("    inputs:\n", 1)[0]
+        self.assertEqual(declaration, "    secrets:\n      ASC_API_KEY_P8_BASE64:\n        required: true\n")
+        self.assertNotIn("secrets: inherit", call + called)
         upload_job = called.split("\n  upload:\n", 1)[1]
         self.assertIn("environment: mobile-internal-ios", upload_job)
         self.assertEqual(upload_job.count("ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}"), 1)
