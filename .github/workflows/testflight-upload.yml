@@ -1,0 +1,74 @@
+name: Upload exact IPA to TestFlight INTERNAL ONLY
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful internal-build run containing the approved signed IPA
+        type: string
+        required: true
+      source_sha:
+        description: Approved full 40-character source commit from that run
+        type: string
+        required: true
+      artifact_id:
+        description: Exact GitHub artifact ID (never latest/by-name selection)
+        type: string
+        required: true
+      ipa_sha256:
+        description: Independently reviewed SHA-256 of the exact IPA to upload
+        type: string
+        required: true
+      confirm_internal_only:
+        description: Authorize one upload to TestFlight INTERNAL ONLY; no public submission
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: bharatcode-testflight-upload
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: macos-26-intel
+    timeout-minutes: 20
+    environment: mobile-internal-ios
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      BC_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      BC_SOURCE_SHA: ${{ inputs.source_sha }}
+      BC_ARTIFACT_ID: ${{ inputs.artifact_id }}
+      BC_IPA_SHA256: ${{ inputs.ipa_sha256 }}
+      BC_CONFIRM_INTERNAL_ONLY: ${{ inputs.confirm_internal_only }}
+      IOS_DISTRIBUTION_CERT_SHA256: ${{ vars.IOS_DISTRIBUTION_CERT_SHA256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify exact source, artifact, IPA and native-runtime receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/internal-build/testflight_upload.py verify
+      - name: Validate, check ASC app and unused build number, then upload once
+        env:
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+          ASC_APP_ID: ${{ vars.ASC_APP_ID }}
+        run: python3 scripts/internal-build/testflight_upload.py upload
+      - name: Remove temporary ASC key
+        if: always()
+        run: python3 scripts/internal-build/testflight_upload.py cleanup
+      - name: Retain sanitized upload result (never private keys or JWTs)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testflight-upload-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bharatcode-testflight-upload/upload-receipt.json
+          if-no-files-found: ignore
+          retention-days: 7

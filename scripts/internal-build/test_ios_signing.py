@@ -28,7 +28,7 @@ class IOSSigningGuards(unittest.TestCase):
         self.env = {name: "fixture-not-a-secret" for name in ios.SECRETS}
         self.env.update({
             "IOS_TEAM_ID": "TEAMTEST01", "IOS_APP_ID_PREFIX": "PREFIX0001",
-            "IOS_PROVISION_PROFILE_UUID": "00000000-1111-2222-3333-444444444444",
+            "IOS_PROVISION_PROFILE_UUID": "abcdef01-2345-6789-abcd-0123456789ab",
             "IOS_DISTRIBUTION_CERT_SHA256": hashlib.sha256(self.cert).hexdigest(),
             "BC_INTERNAL_BUILD_NUMBER": "1",
         })
@@ -55,6 +55,18 @@ class IOSSigningGuards(unittest.TestCase):
     def test_valid_profile_and_distinct_legacy_prefix(self):
         self.assertEqual(self.valid(), self.cert)
         ios.prerequisites(self.env)
+
+    def test_profile_uuid_spelling_is_preserved_for_xcode_and_installation(self):
+        uuid = self.profile["UUID"]
+        self.assertEqual(ios.identifiers(self.env)["IOS_PROVISION_PROFILE_UUID"], uuid)
+        with patch.dict(os.environ, self.env, clear=True), patch.object(Path, "home", return_value=Path("/fixture")):
+            self.assertEqual(ios.profile_path(), Path("/fixture/Library/Developer/Xcode/UserData/Provisioning Profiles")
+                             / (uuid + ".mobileprovision"))
+        # Reject an inconsistent pin before Xcode, rather than silently rewriting
+        # the profile selector. Existing export/project/settings tests also use
+        # this lowercase alphabetic UUID, so they cover the original regression.
+        with self.assertRaisesRegex(ValueError, "profile UUID"):
+            self.valid(env={**self.env, "IOS_PROVISION_PROFILE_UUID": uuid.upper()})
 
     def test_each_required_input_is_mandatory(self):
         for name in self.env:

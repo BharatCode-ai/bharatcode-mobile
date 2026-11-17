@@ -57,7 +57,9 @@ def identifiers(env):
     value = env.get("IOS_PROVISION_PROFILE_UUID", "")
     require(re.fullmatch(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", value),
             "Missing/invalid IOS_PROVISION_PROFILE_UUID")
-    result["IOS_PROVISION_PROFILE_UUID"] = value.upper()
+    # This is also Xcode's profile selector and installed filename. Preserve
+    # Apple's exact spelling; do not uppercase an otherwise valid UUID.
+    result["IOS_PROVISION_PROFILE_UUID"] = value
     value = env.get("IOS_DISTRIBUTION_CERT_SHA256", "").replace(":", "").lower()
     require(re.fullmatch(r"[0-9a-f]{64}", value), "Missing/invalid IOS_DISTRIBUTION_CERT_SHA256")
     result["IOS_DISTRIBUTION_CERT_SHA256"] = value
@@ -80,7 +82,7 @@ def utc(value):
 def validate_profile(profile, env, now=None):
     ids = identifiers(env)
     require(isinstance(profile, dict), "Invalid provisioning profile")
-    require(str(profile.get("UUID", "")).upper() == ids["IOS_PROVISION_PROFILE_UUID"],
+    require(profile.get("UUID") == ids["IOS_PROVISION_PROFILE_UUID"],
             "Unexpected provisioning profile UUID")
     require(profile.get("TeamIdentifier") == [ids["IOS_TEAM_ID"]], "Profile team mismatch")
     # A legacy App ID prefix can differ from the team. Never derive one from the other.
