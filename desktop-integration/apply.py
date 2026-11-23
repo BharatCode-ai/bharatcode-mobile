@@ -60,4 +60,45 @@ edit("packages/app/src/components/dialog-settings.tsx", '        <Tabs.Content v
 edit("packages/app/src/components/settings-v2/dialog-settings-v2.tsx", 'import { SettingsMarketplace } from "../settings-marketplace"', 'import { SettingsMarketplace } from "../settings-marketplace"\nimport { SettingsMobile } from "../settings-mobile"')
 edit("packages/app/src/components/settings-v2/dialog-settings-v2.tsx", '                    <TabsV2.Trigger value="models">', '                    <Show when={platform.mobileAccess}>\n                      <TabsV2.Trigger value="mobile">\n                        <Icon name="server" />\n                        {language.t("mobile.title")}\n                      </TabsV2.Trigger>\n                    </Show>\n                    <TabsV2.Trigger value="models">')
 edit("packages/app/src/components/settings-v2/dialog-settings-v2.tsx", '        <TabsV2.Content value="models"', '        <Show when={platform.mobileAccess}>\n          <TabsV2.Content value="mobile" class="settings-v2-panel">\n            <SettingsMobile />\n          </TabsV2.Content>\n        </Show>\n        <TabsV2.Content value="models"')
+# Compose the Desktop layouts around the original timeline, request docks and composer.
+for name in ("session-control-layout.tsx", "session-control.css"):
+    shutil.copyfile(ROOT / "desktop-integration" / name, TARGET / "packages/app/src/components" / name)
+session = "packages/app/src/pages/session.tsx"
+edit(session, 'import { usePlatform } from "@/context/platform"', 'import { usePlatform } from "@/context/platform"\nimport { SessionControlLayout } from "@/components/session-control-layout"')
+edit(session, '  const wantsReview = createMemo(', '  const [mobileControl, setMobileControl] = createSignal(false)\n  const wantsReview = createMemo(')
+edit(session, 'const enabled = wantsReview() && sync().project?.vcs === "git"', 'const enabled = (wantsReview() || mobileControl()) && sync().project?.vcs === "git"')
+edit(session, '  const sessionPanelContent = () => (\n    <>', """  const sessionPanelContent = () => (
+    <SessionControlLayout
+      available={!!platform.mobileAccess && !!params.id && isDesktop()}
+      sessionKey={sessionKey()}
+      pending={!!composer.questionRequest() || !!composer.permissionRequest()}
+      onControlChange={setMobileControl}
+      changesTitle={reviewMode() === "git" ? language.t("mobile.session.changes") : language.t("session.review.change.other")}
+      changes={reviewDiffs()}
+      openFile={(file) => { tabs().setActive("review"); focusReviewDiff(file) }}
+      openChanges={() => { openReviewPanel(); tabs().setActive("review") }}
+      composer={(requestHost) => renderComposer(requestHost)}
+    >""")
+edit(session, '      <Show when={(params.id || !newSessionDesign()) && !mobileChanges()}>', """    </SessionControlLayout>
+  )
+
+  const renderComposer = (requestHost?: HTMLElement) => (
+    <>
+      <Show when={(params.id || !newSessionDesign()) && !mobileChanges()}>""")
+edit(session, '            <SessionComposerRegion\n              controller={controller}', '            <SessionComposerRegion\n              requestHost={requestHost}\n              controller={controller}')
+region = "packages/app/src/pages/session/composer/session-composer-region.tsx"
+edit(region, 'import { Show, type JSX } from "solid-js"', 'import { Show, type JSX } from "solid-js"\nimport { Portal } from "solid-js/web"')
+edit(region, '  controller: SessionComposerRegionController', '  requestHost?: HTMLElement\n  controller: SessionComposerRegionController')
+region_file = TARGET / region
+region_source = region_file.read_text()
+if "const requestDocks =" not in region_source:
+    start = region_source.index("        <Show when={controller.state.questionRequest()}")
+    end = region_source.index("        <Show when={controller.showComposer()}", start)
+    docks = region_source[start:end]
+    region_source = region_source[:start] + """        <Show when={props.requestHost} fallback={requestDocks()}>
+          {(host) => <Portal mount={host()}>{requestDocks()}</Portal>}
+        </Show>
+""" + region_source[end:]
+    region_source = region_source.replace("  return (", "  const requestDocks = () => (<>\n" + docks + "  </>)\n\n  return (", 1)
+    region_file.write_text(region_source)
 print("Applied mobile connector, trusted IPC and Mobile devices settings to the pinned Desktop source.")

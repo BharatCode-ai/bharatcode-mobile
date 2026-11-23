@@ -205,6 +205,10 @@ test("pending storage failure prevents network execution and preserves input", a
   store.setDraft("hello");
   await store.send();
   expect(sent).toEqual([]);
+  expect(store.getSnapshot().error).toBe(
+    "Outgoing message storage unavailable",
+  );
+  expect(store.getSnapshot().pending).toBeUndefined();
   expect(store.getSnapshot().draft).toBe("hello");
   store.dispose();
 });
@@ -616,4 +620,29 @@ test("idle Desktop network loss becomes offline and retries health without losin
     store.dispose();
     jest.useRealTimers();
   }
+});
+
+test("a failed decision refreshes as a read without submitting another decision", async () => {
+  const { store, api } = setup();
+  await store.connectDevice(device);
+  const call = jest.mocked(api.request);
+  call.mockRejectedValueOnce(new TypeError("fetch failed"));
+  const request = {
+    id: "per_one",
+    sessionID: "ses_one",
+    title: "Test permission",
+    command: "sample",
+    directory: "/project",
+    question: false,
+    questions: [],
+  };
+  expect(await store.decide(request, true)).toBe(false);
+  expect(store.getSnapshot().error).toBe("Approval delivery unknown");
+  await store.activity();
+  expect(
+    call.mock.calls.filter(
+      ([method, path]) => method === "POST" && path.endsWith("/reply"),
+    ),
+  ).toHaveLength(1);
+  store.dispose();
 });

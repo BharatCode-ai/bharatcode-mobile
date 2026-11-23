@@ -1,4 +1,9 @@
 export const MOBILE_ENGLISH = {
+  "mobile.session.layout": "Session layout",
+  "mobile.session.chat": "Chat",
+  "mobile.session.control": "Desktop Control",
+  "mobile.session.activity": "Session activity",
+  "mobile.session.changes": "Working changes",
   "mobile.status.off": "Remote access is off.",
   "mobile.status.provisioning": "Preparing the secure tunnel. First-time certificate issuance can take a few minutes.",
   "mobile.status.connected": "Secure tunnel connected.",
@@ -32,10 +37,14 @@ export const MOBILE_ENGLISH = {
   "mobile.revoke": "Revoke access",
   "mobile.revokeConfirm": "Revoke this phone’s access? It will need a new pairing code to reconnect.",
   "mobile.scope": "Connects to the local Desktop runtime. WSL workspaces are not available on mobile yet.",
+  "mobile.error.title": "Mobile connection needs attention",
+  "mobile.error.check": "Check status",
   "mobile.error.storage":
     "Mobile-device storage is unavailable. Your existing device data has been kept. Check storage access and try again.",
   "mobile.error.connection":
     "The secure connection could not be established. Check your internet connection and retry.",
   "mobile.error.reconnecting": "OpenTunnel is reconnecting. Keep BharatCode running.",
-  "mobile.error.action": "This mobile-device action could not be completed. Refresh and try again.",
+  "mobile.error.clipboard": "The pairing link couldn’t be copied. Scan the QR code with your phone instead.",
+  "mobile.error.status": "Couldn’t load mobile device status. Check again in a moment.",
+  "mobile.error.action": "Desktop hasn’t confirmed this action. Check the current device status before trying again.",
 } as const

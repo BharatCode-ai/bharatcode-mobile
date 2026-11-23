@@ -9,6 +9,7 @@ import {
   Frame,
   Header,
   IconButton,
+  Icon,
   Notices,
   Sheet,
   Txt,
@@ -152,16 +153,73 @@ export default function PairingScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[
           s.content,
-          { flexGrow: 1, justifyContent: "center", gap: 24, paddingBottom: 60 },
+          { flexGrow: 1, justifyContent: "center", gap: 14, paddingBottom: 32 },
         ]}
       >
-        <Brand size={64} />
-        <Txt style={{ fontSize: 34, lineHeight: 42, fontWeight: "600" }}>
+        <View
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+          style={{
+            alignItems: "center",
+            justifyContent: "center",
+            height: 122,
+          }}
+        >
+          <View
+            style={{
+              width: 146,
+              height: 85,
+              backgroundColor: C.surface,
+              borderWidth: 2,
+              borderColor: C.faint,
+              borderRadius: 10,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Brand size={46} />
+            <View
+              style={{
+                position: "absolute",
+                bottom: -10,
+                width: 55,
+                height: 5,
+                borderRadius: 3,
+                backgroundColor: C.faint,
+              }}
+            />
+            <View
+              style={{
+                position: "absolute",
+                bottom: -12,
+                right: -14,
+                height: 58,
+                width: 32,
+                borderRadius: 8,
+                borderWidth: 2,
+                borderColor: C.orange,
+                backgroundColor: C.canvas,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Icon name="link-outline" size={17} color={C.orange} />
+            </View>
+          </View>
+        </View>
+        <Txt
+          style={{
+            fontSize: 36,
+            lineHeight: 40,
+            letterSpacing: -1.5,
+            fontWeight: "600",
+          }}
+        >
           Continue from{`\n`}your computer.
         </Txt>
         <Txt muted style={{ fontSize: 16, lineHeight: 25 }}>
-          Your chats, tools, and projects—right where you left them. Your
-          computer keeps running the work.
+          Scan the pairing code in Desktop settings to open your chats and
+          projects on this phone.
         </Txt>
         {state.confirmation ? (
           <View style={[s.panel, { gap: 16 }]}>

@@ -1,14 +1,18 @@
 import { Redirect, Tabs } from "expo-router";
 import { Icon } from "../../src/design/components";
+import { useReducedMotion } from "../../src/design/motion";
 import { C } from "../../src/design/tokens";
 import { useApp } from "../../src/state/react";
 export default function Layout() {
   const { state } = useApp();
+  const reduced = useReducedMotion();
   if (!state.device) return <Redirect href="/pair" />;
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
+        animation: reduced ? "none" : "fade",
+        tabBarBadgeStyle: { backgroundColor: C.orange, color: C.canvas },
         tabBarActiveTintColor: C.orange,
         tabBarInactiveTintColor: C.muted,
         tabBarStyle: {

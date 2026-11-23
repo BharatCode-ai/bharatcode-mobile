@@ -1,17 +1,20 @@
 import { useCallback, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Clipboard from "expo-clipboard";
+import { useCopyText } from "../../design/use-copy-text";
 import { useResource } from "../../state/use-resource";
 import {
   Button,
   Busy,
+  IssueCard,
   Frame,
   Header,
   IconButton,
+  ListRow,
+  Icon,
   Txt,
 } from "../../design/components";
-import { styles as s } from "../../design/tokens";
+import { C, styles as s } from "../../design/tokens";
 import { useApp } from "../../state/react";
 export default function FilesScreen() {
   const { store, state } = useApp();
@@ -19,8 +22,8 @@ export default function FilesScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [path, setPath] = useState(""),
     [wrap, setWrap] = useState(false),
-    [attempt, setAttempt] = useState(0),
-    [copied, setCopied] = useState(false);
+    [attempt, setAttempt] = useState(0);
+  const { copied, copyFailed, copy, resetCopy } = useCopyText();
   const load = useCallback(async () => {
     if (store.getSnapshot().selected?.id !== id)
       await store.openConversation(id);
@@ -45,9 +48,12 @@ export default function FilesScreen() {
         }
       />
       <ScrollView contentContainerStyle={s.content}>
-        <Txt selectable style={s.mono}>
-          {path || "Project root"}
-        </Txt>
+        <View style={[s.row, { paddingVertical: 8 }]}>
+          <Icon name="folder-open-outline" color={C.orange} size={20} />
+          <Txt selectable style={[s.mono, { flex: 1 }]}>
+            {path || "Project root"}
+          </Txt>
+        </View>
         {!!path && (
           <Button
             title="Parent folder"
@@ -58,23 +64,30 @@ export default function FilesScreen() {
         {loading ? (
           <Busy />
         ) : error ? (
-          <>
-            <Txt>{error}</Txt>
-            <Button
-              title="Retry files"
-              onPress={() => setAttempt((v) => v + 1)}
-            />
-          </>
+          <IssueCard
+            message={error}
+            fallback="Couldn’t load files"
+            actionLabel="Retry files"
+            onAction={() => setAttempt((v) => v + 1)}
+          />
         ) : file?.type === "directory" ? (
           <>
-            {file.entries?.map((e) => (
-              <Button
-                key={e.name}
-                title={e.name + (e.symlink ? " ↗" : "")}
-                icon={e.directory ? "folder-outline" : "document-text-outline"}
-                onPress={() => setPath(path ? `${path}/${e.name}` : e.name)}
-              />
-            ))}
+            <View>
+              {file.entries?.map((e) => (
+                <ListRow
+                  accent={e.directory ? C.orange : C.muted}
+                  key={e.name}
+                  title={e.name + (e.symlink ? " ↗" : "")}
+                  icon={
+                    e.directory ? "folder-outline" : "document-text-outline"
+                  }
+                  onPress={() => {
+                    resetCopy();
+                    setPath(path ? `${path}/${e.name}` : e.name);
+                  }}
+                />
+              ))}
+            </View>
             {!file.entries?.length && <Txt muted>This folder is empty.</Txt>}
             {file.truncated && (
               <Txt muted>Showing the first 2,000 entries.</Txt>
@@ -93,24 +106,28 @@ export default function FilesScreen() {
               />
               <Button
                 title={copied ? "Copied" : "Copy file"}
-                onPress={() =>
-                  void Clipboard.setStringAsync(file?.text ?? "").then(() =>
-                    setCopied(true),
-                  )
-                }
+                onPress={() => void copy(file?.text ?? "")}
               />
             </View>
-            {wrap ? (
-              <Txt selectable style={s.mono}>
-                {file?.text}
-              </Txt>
-            ) : (
-              <ScrollView horizontal>
+            {copyFailed && (
+              <IssueCard
+                message="Clipboard unavailable"
+                fallback="Couldn’t copy text"
+              />
+            )}
+            <View style={[s.panel, { backgroundColor: C.surface }]}>
+              {wrap ? (
                 <Txt selectable style={s.mono}>
                   {file?.text}
                 </Txt>
-              </ScrollView>
-            )}
+              ) : (
+                <ScrollView horizontal>
+                  <Txt selectable style={s.mono}>
+                    {file?.text}
+                  </Txt>
+                </ScrollView>
+              )}
+            </View>
           </>
         )}
       </ScrollView>

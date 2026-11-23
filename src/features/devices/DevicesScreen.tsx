@@ -2,15 +2,17 @@ import { useState } from "react";
 import { Alert, ScrollView, View } from "react-native";
 import { useRouter } from "expo-router";
 import {
+  IssueCard,
   Brand,
   Button,
   Frame,
   Header,
+  ListRow,
   Notices,
   Sheet,
   Txt,
 } from "../../design/components";
-import { styles as s } from "../../design/tokens";
+import { C, styles as s } from "../../design/tokens";
 import { useApp } from "../../state/react";
 import { DesktopDevice } from "../../domain/types";
 export default function DevicesScreen() {
@@ -42,28 +44,26 @@ export default function DevicesScreen() {
   };
   return (
     <Frame>
-      <Header title="Devices" />
+      <Header large title="Devices" />
       <Notices />
       <ScrollView contentContainerStyle={s.content}>
-        <Txt muted>
-          Your computer runs the work. Your phone continues the conversation.
-        </Txt>
         {(state.preview && state.device ? [state.device] : state.devices).map(
           (d) => (
-            <View key={d.id} style={[s.panel, { gap: 8 }]}>
-              <Button
-                title={d.name}
-                icon="desktop-outline"
-                compact
-                onPress={() => setDetail(d)}
-              />
-              <Txt muted>
-                {d.platform} ·{" "}
-                {d.id === state.device?.id && state.online
+            <ListRow
+              key={d.id}
+              title={d.name}
+              icon="desktop-outline"
+              detail={d.platform}
+              accent={
+                d.id === state.device?.id && state.online ? C.green : C.muted
+              }
+              trailing={
+                d.id === state.device?.id && state.online
                   ? "Connected"
-                  : "Saved computer"}
-              </Txt>
-            </View>
+                  : "Saved"
+              }
+              onPress={() => setDetail(d)}
+            />
           ),
         )}
         <Button
@@ -96,7 +96,9 @@ export default function DevicesScreen() {
             ? "Connected now"
             : "No current connection"}
         </Txt>
-        {error && <Txt>{error}</Txt>}
+        {error && (
+          <IssueCard message={error} fallback="Couldn’t remove this computer" />
+        )}
         <Button
           title="Connect to this computer"
           disabled={state.preview}
@@ -109,12 +111,12 @@ export default function DevicesScreen() {
       </Sheet>
       <Sheet
         visible={about}
-        title="Make yourself at home"
+        title="Preferences and about"
         onClose={() => setAbout(false)}
       >
         <Txt muted>Appearance</Txt>
         <Txt>Dark</Txt>
-        <Txt muted>Warm surfaces, quiet contrast, and BharatCode orange.</Txt>
+
         <View style={s.separator} />
         <View style={s.row}>
           <Brand />

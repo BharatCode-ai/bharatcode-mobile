@@ -8,8 +8,17 @@ const normalizedPermission = item => ({ ...item, action: item.permission, resour
 export function desktopMessage(item) {
   const info = item.info, parts = item.parts ?? []
   const texts = parts.filter(p => p.type === 'text').map(p => ({id:p.id,type:'text',text:p.text ?? ''}))
-  const error = info.error?.data?.message ?? info.error?.message
-  if (error) texts.push({id:info.id + '_error',type:'text',text:`The computer reported: ${error}`})
+  if (info.role === 'assistant' && info.error) {
+    const status = Number(info.error.data?.statusCode)
+    const name = info.error.name
+    let reason = 'interrupted'
+    if (name === 'MessageAbortedError') reason = 'stopped'
+    else if (name === 'ContextOverflowError' || name === 'OutputLengthError' || name === 'MessageOutputLengthError') reason = 'length'
+    else if (name === 'ProviderAuthError' || status === 401 || status === 403) reason = 'access'
+    else if (status === 402) reason = 'billing'
+    else if (status === 429 || status === 529) reason = 'busy'
+    texts.push({id:info.id + '_error',type:'text',text:'The model did not finish this reply.',replyIssue:reason})
+  }
   return {id:info.id,type:info.role,time:info.time,
     ...(info.role === 'user' ? {text:texts.map(p=>p.text).join('\n\n')} : {content:[...texts,...parts.filter(p=>p.type==='tool').map(p=>({id:p.id,type:'tool',name:p.tool,state:{...p.state,content:p.state?.output ? [{type:'text',text:p.state.output}] : []}}))]})}
 }
