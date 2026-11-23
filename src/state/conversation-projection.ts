@@ -4,6 +4,7 @@ function sameMessage(a: ChatMessage, b: ChatMessage) {
   return (
     a.id === b.id &&
     a.role === b.role &&
+    a.replyIssue === b.replyIssue &&
     a.text === b.text &&
     a.tools.length === b.tools.length &&
     a.tools.every((tool, i) => {

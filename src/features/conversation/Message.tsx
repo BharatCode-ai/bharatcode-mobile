@@ -1,24 +1,56 @@
 import { memo, useState } from "react";
-import { Linking, ScrollView, View } from "react-native";
+import {
+  LayoutAnimation,
+  Linking,
+  Platform,
+  ScrollView,
+  View,
+} from "react-native";
 import Markdown from "react-native-markdown-display";
-import * as Clipboard from "expo-clipboard";
+import { useCopyText } from "../../design/use-copy-text";
 import { ChatMessage, ToolActivity } from "../../domain/types";
-import { Brand, Button, Sheet, Txt } from "../../design/components";
+import {
+  IssueCard,
+  Brand,
+  Button,
+  IconButton,
+  Sheet,
+  Txt,
+} from "../../design/components";
+import { Reveal, useReducedMotion } from "../../design/motion";
 import { C, styles as s } from "../../design/tokens";
 export function ToolPanel({ tool }: { tool: ToolActivity }) {
   const [expanded, setExpanded] = useState(false),
     [full, setFull] = useState(false);
+  const { copy, copyFailed } = useCopyText();
+  const reduced = useReducedMotion();
   const content = `Input\n${tool.input}\n\nOutput\n${tool.output}`;
   return (
-    <View style={[s.panel, { gap: 8, padding: 10 }]}>
+    <View
+      style={[
+        s.panel,
+        {
+          gap: expanded ? 8 : 0,
+          paddingHorizontal: 12,
+          paddingVertical: expanded ? 8 : 0,
+        },
+      ]}
+    >
       <Button
         title={`${tool.name} · ${tool.status}`}
+        align="left"
         icon={expanded ? "chevron-up" : "chevron-down"}
         compact
-        onPress={() => setExpanded((v) => !v)}
+        onPress={() => {
+          if (!reduced && Platform.OS !== "web")
+            LayoutAnimation.configureNext(
+              LayoutAnimation.Presets.easeInEaseOut,
+            );
+          setExpanded((v) => !v);
+        }}
       />
       {expanded && (
-        <>
+        <Reveal>
           <Txt selectable style={s.mono}>
             {content.slice(0, 4000)}
           </Txt>
@@ -28,7 +60,7 @@ export function ToolPanel({ tool }: { tool: ToolActivity }) {
               onPress={() => setFull(true)}
             />
           )}
-        </>
+        </Reveal>
       )}
       <Sheet title={tool.name} visible={full} onClose={() => setFull(false)}>
         <ScrollView horizontal>
@@ -36,19 +68,20 @@ export function ToolPanel({ tool }: { tool: ToolActivity }) {
             {content}
           </Txt>
         </ScrollView>
-        <Button
-          title="Copy tool output"
-          onPress={() => void Clipboard.setStringAsync(content)}
-        />
+        {copyFailed && (
+          <IssueCard
+            message="Clipboard unavailable"
+            fallback="Couldn’t copy tool output"
+          />
+        )}
+        <Button title="Copy tool output" onPress={() => void copy(content)} />
       </Sheet>
     </View>
   );
 }
 function Code({ content, language }: { content: string; language?: string }) {
-  const [copied, setCopied] = useState(false),
-    [full, setFull] = useState(false);
-  const copy = () =>
-    void Clipboard.setStringAsync(content).then(() => setCopied(true));
+  const { copied, copyFailed, copy } = useCopyText();
+  const [full, setFull] = useState(false);
   return (
     <View
       style={[s.panel, { padding: 0, marginVertical: 10, overflow: "hidden" }]}
@@ -66,9 +99,19 @@ function Code({ content, language }: { content: string; language?: string }) {
         <Txt muted style={{ flex: 1, fontFamily: "JetBrainsMono" }}>
           {language || "Code"}
         </Txt>
-        <Button title={copied ? "Copied" : "Copy"} compact onPress={copy} />
+        <Button
+          title={copied ? "Copied" : "Copy"}
+          compact
+          onPress={() => void copy(content)}
+        />
         <Button title="Expand" compact onPress={() => setFull(true)} />
       </View>
+      {copyFailed && (
+        <IssueCard
+          message="Clipboard unavailable"
+          fallback="Couldn’t copy code"
+        />
+      )}
       <ScrollView horizontal contentContainerStyle={{ padding: 14 }}>
         <Txt selectable style={s.mono}>
           {content.length > 16000
@@ -86,7 +129,16 @@ function Code({ content, language }: { content: string; language?: string }) {
             {content}
           </Txt>
         </ScrollView>
-        <Button title={copied ? "Copied" : "Copy code"} onPress={copy} />
+        {copyFailed && (
+          <IssueCard
+            message="Clipboard unavailable"
+            fallback="Couldn’t copy code"
+          />
+        )}
+        <Button
+          title={copied ? "Copied" : "Copy code"}
+          onPress={() => void copy(content)}
+        />
       </Sheet>
     </View>
   );
@@ -115,18 +167,20 @@ export const Message = memo(function Message({
 }: {
   message: ChatMessage;
 }) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copyFailed, copy } = useCopyText();
+  const [linkFailed, setLinkFailed] = useState(false);
   if (message.role === "user")
     return (
       <View
         style={{
           alignSelf: "flex-end",
-          maxWidth: "92%",
-          backgroundColor: C.raised,
+          maxWidth: "84%",
+          backgroundColor: C.surface,
           borderColor: C.border,
           borderWidth: 1,
           padding: 16,
-          borderRadius: 20,
+          borderRadius: 18,
+          borderTopRightRadius: 6,
           marginVertical: 12,
         }}
       >
@@ -138,7 +192,7 @@ export const Message = memo(function Message({
       <View style={s.row}>
         <View
           style={{
-            padding: 8,
+            padding: 4,
             borderWidth: 1,
             borderColor: C.border,
             borderRadius: 12,
@@ -146,22 +200,33 @@ export const Message = memo(function Message({
         >
           <Brand size={24} />
         </View>
-        <View style={{ flex: 1 }} />
-        <Button
-          title={copied ? "Copied" : "Copy reply"}
-          compact
-          onPress={() =>
-            void Clipboard.setStringAsync(message.text).then(() =>
-              setCopied(true),
-            )
-          }
+        <Txt style={{ flex: 1, fontWeight: "600" }}>BharatCode</Txt>
+        <IconButton
+          label={copied ? "Copied" : "Copy reply"}
+          icon={copied ? "checkmark" : "copy-outline"}
+          color={copied ? C.green : C.muted}
+          onPress={() => void copy(message.text)}
         />
       </View>
+      {copyFailed && (
+        <IssueCard
+          message="Clipboard unavailable"
+          fallback="Couldn’t copy reply"
+        />
+      )}
+      {linkFailed && (
+        <IssueCard
+          message="Open external link"
+          fallback="Couldn’t open link"
+          onDismiss={() => setLinkFailed(false)}
+        />
+      )}
       <Markdown
         style={markdownStyles}
         mergeStyle
         onLinkPress={(url) => {
-          if (/^https?:\/\//i.test(url)) void Linking.openURL(url);
+          if (/^https?:\/\//i.test(url))
+            void Linking.openURL(url).catch(() => setLinkFailed(true));
           return false;
         }}
         rules={{
@@ -195,6 +260,12 @@ export const Message = memo(function Message({
       >
         {message.text}
       </Markdown>
+      {message.replyIssue && (
+        <IssueCard
+          message={`reply/${message.replyIssue}`}
+          fallback="The reply was interrupted"
+        />
+      )}
       {message.tools.map((tool) => (
         <ToolPanel key={tool.id} tool={tool} />
       ))}

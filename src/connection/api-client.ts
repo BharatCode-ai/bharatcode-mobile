@@ -46,9 +46,13 @@ export class ApiClient implements API {
     options.signal?.addEventListener("abort", abort);
     if (options.signal?.aborted) controller.abort();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     const arm = (ms: number) => {
       clearTimeout(timer);
-      timer = setTimeout(() => controller.abort(), ms);
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, ms);
     };
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
@@ -70,13 +74,18 @@ export class ApiClient implements API {
       });
       if (!response.ok) {
         await response.body?.cancel();
+        if (response.status === 403 && path.endsWith("/files"))
+          throw new ApiError(403, "File unavailable on mobile");
         throw new ApiError(
           response.status,
-          response.status === 401
-            ? "This phone is no longer authorized. Pair again."
-            : response.status === 404
-              ? "This feature is unavailable or was resolved on Desktop."
-              : `The computer could not complete that request (${response.status}).`,
+          path.startsWith("/mobile/v1/claim") &&
+            [401, 410].includes(response.status)
+            ? "Pairing code expired or used. Get a fresh code on Desktop."
+            : response.status === 401
+              ? "This phone is no longer authorized. Pair again."
+              : response.status === 404
+                ? "This feature is unavailable or was resolved on Desktop."
+                : `The computer could not complete that request (${response.status}).`,
         );
       }
       if (
@@ -101,6 +110,9 @@ export class ApiClient implements API {
           yield value;
         }
       }
+    } catch (error) {
+      if (timedOut) throw new ApiError(408, "Desktop request timed out");
+      throw error;
     } finally {
       clearTimeout(timer);
       controller.abort();

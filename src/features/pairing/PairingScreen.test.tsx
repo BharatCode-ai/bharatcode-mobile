@@ -37,6 +37,15 @@ test("Add computer stays on pairing even when another computer is selected", asy
     </StoreProvider>,
   );
   expect(screen.getByLabelText("Paste pairing code")).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText("Paste pairing code"));
+  await fireEvent.changeText(
+    screen.getByLabelText("Pairing payload"),
+    "example invalid code",
+  );
+  await fireEvent.press(screen.getByLabelText("Connect computer"));
+  expect(
+    await screen.findByText("That pairing code couldn’t be used"),
+  ).toBeTruthy();
   expect(replace).not.toHaveBeenCalled();
   store.dispose();
 });

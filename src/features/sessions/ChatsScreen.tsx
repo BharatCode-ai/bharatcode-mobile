@@ -6,12 +6,15 @@ import {
   Empty,
   Frame,
   Header,
+  ListRow,
   Icon,
   IconButton,
   Notices,
+  IssueCard,
   Sheet,
   Txt,
 } from "../../design/components";
+import { describeIssue } from "../../design/issues";
 import { C, styles as s } from "../../design/tokens";
 import { useApp } from "../../state/react";
 export default function ChatsScreen() {
@@ -27,9 +30,35 @@ export default function ChatsScreen() {
   );
   const open = (id: string) =>
     router.push({ pathname: "/conversation/[id]", params: { id } });
+  const [retrying, setRetrying] = useState(false);
+  const retry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await store.retryChats();
+    } finally {
+      setRetrying(false);
+    }
+  };
+  const filtered = !!state.search || state.project !== "All projects";
+  const needsPairing =
+    !!state.error &&
+    describeIssue(state.error, "", state.device?.name, state.errorStatus).pair;
+  const issue = state.error && (
+    <IssueCard
+      message={state.error}
+      fallback="Couldn’t load chats"
+      desktop={state.device?.name}
+      status={state.errorStatus}
+      actionLabel={needsPairing ? "Pair again" : "Try again"}
+      pending={state.loadingSessions || retrying}
+      onAction={() => (needsPairing ? router.push("/pair") : void retry())}
+    />
+  );
   return (
     <Frame>
       <Header
+        large
         title="Chats"
         subtitle={`${state.device?.name ?? "Computer"} · ${state.online ? "Connected" : "Offline"}`}
         left={
@@ -53,7 +82,7 @@ export default function ChatsScreen() {
           />
         }
       />
-      <Notices />
+      <Notices hideError />
       <View style={{ padding: 20, gap: 12 }}>
         <View style={[s.row, s.input, { paddingVertical: 0 }]}>
           <Icon name="search" color={C.muted} />
@@ -86,75 +115,72 @@ export default function ChatsScreen() {
         data={visible}
         keyExtractor={(v) => v.id}
         refreshing={state.loadingSessions}
-        onRefresh={() => void store.refreshSessions()}
+        onRefresh={() => void retry()}
         contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20 }}
         renderItem={({ item }) => (
-          <View
-            style={{
-              borderBottomColor: C.border,
-              borderBottomWidth: 1,
-              paddingVertical: 12,
-            }}
-          >
-            <Button
-              title={item.title}
-              align="left"
-              compact
-              onPress={() => open(item.id)}
-            />
-            <View style={[s.row, { paddingHorizontal: 10 }]}>
-              <Txt muted style={{ flex: 1 }}>
-                {item.project}
-              </Txt>
-              <Txt
-                muted
-                style={{
-                  color:
-                    item.status === "attention"
-                      ? C.orange
-                      : item.status === "running"
-                        ? C.green
-                        : C.muted,
-                }}
-              >
-                {item.status === "attention"
-                  ? "Needs your attention"
-                  : item.status === "running"
-                    ? "Running"
-                    : new Date(item.updated).toLocaleDateString()}
-              </Txt>
-            </View>
-          </View>
-        )}
-        ListEmptyComponent={
-          <Empty
-            title={
-              state.loadingSessions || state.busy
-                ? "Loading chats"
-                : state.error
-                  ? "Couldn’t load chats"
-                  : state.search || state.project !== "All projects"
-                    ? "No results"
-                    : "No chats yet"
+          <ListRow
+            title={item.title}
+            detail={item.project}
+            onPress={() => open(item.id)}
+            icon={
+              item.status === "attention"
+                ? "hand-left-outline"
+                : item.status === "running"
+                  ? "pulse-outline"
+                  : "chatbubble-outline"
             }
-            detail={
-              state.loadingSessions || state.busy
-                ? "Getting your conversations from Desktop."
-                : "Choose a project, start a chat, or pull to refresh."
+            accent={
+              item.status === "attention"
+                ? C.orange
+                : item.status === "running"
+                  ? C.green
+                  : C.muted
             }
-            action={
-              <Button
-                title={state.error ? "Retry" : "Clear filters"}
-                onPress={() => {
-                  if (state.error) void store.refreshSessions();
-                  else {
-                    store.setSearch("");
-                    store.setProject("All projects");
-                  }
-                }}
-              />
+            trailing={
+              item.status === "attention"
+                ? "Needs input"
+                : item.status === "running"
+                  ? "Running"
+                  : new Date(item.updated).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })
             }
           />
+        )}
+        ListHeaderComponent={
+          issue ? <View style={{ marginBottom: 12 }}>{issue}</View> : undefined
+        }
+        ListEmptyComponent={
+          issue ? undefined : (
+            <Empty
+              title={
+                state.loadingSessions || state.busy
+                  ? "Loading chats"
+                  : filtered
+                    ? "No results"
+                    : "No chats yet"
+              }
+              detail={
+                state.loadingSessions || state.busy
+                  ? "Getting your conversations from Desktop."
+                  : filtered
+                    ? "Try another search or project."
+                    : "Start a chat to begin working with Desktop."
+              }
+              action={
+                filtered ? (
+                  <Button
+                    title="Clear filters"
+                    onPress={() => {
+                      store.setSearch("");
+                      store.setProject("All projects");
+                    }}
+                  />
+                ) : undefined
+              }
+            />
+          )
         }
         ListFooterComponent={
           state.sessionCursor ? (

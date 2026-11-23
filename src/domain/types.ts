@@ -22,6 +22,7 @@ export interface ToolActivity {
   output: string;
 }
 export interface ChatMessage {
+  replyIssue?: string;
   id: string;
   role: string;
   text: string;

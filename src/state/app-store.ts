@@ -49,6 +49,8 @@ export interface Snapshot {
   sessionCursor?: string;
   messageCursor?: string;
   error?: string;
+  errorStatus?: number;
+  activityError?: string;
   notice?: string;
   confirmation?: string;
   agent: string;
@@ -121,7 +123,11 @@ export class AppStore {
   };
   private patch(value: Partial<Snapshot>) {
     if (this.disposed) return;
-    this.state = { ...this.state, ...value };
+    this.state = {
+      ...this.state,
+      ...("error" in value ? { errorStatus: undefined } : {}),
+      ...value,
+    };
     for (const l of this.listeners) l();
   }
   private factory(origin: string, token: string): API {
@@ -143,13 +149,17 @@ export class AppStore {
       `msg_${this.now()}_${Math.random().toString(36).slice(2)}`
     );
   }
-  private fail(e: unknown) {
+  private fail(e: unknown, uncertainAction?: string) {
     if (e instanceof ApiError && e.status === 401) this.cancelLiveUpdate();
     this.patch({
       error:
-        e instanceof Error
-          ? e.message
-          : "Could not reach your computer. Your draft is saved.",
+        uncertainAction &&
+        (!(e instanceof ApiError) || e.status >= 500 || e.status === 408)
+          ? uncertainAction
+          : e instanceof Error
+            ? e.message
+            : "Could not reach your computer.",
+      errorStatus: e instanceof ApiError ? e.status : undefined,
       ...(e instanceof ApiError && e.status === 401 ? { online: false } : {}),
     });
   }
@@ -179,6 +189,7 @@ export class AppStore {
       ...empty,
       ready: true,
       preview: true,
+      activityError: undefined,
       online: true,
       device: {
         id: "preview",
@@ -215,6 +226,7 @@ export class AppStore {
     const rev = this.clientRevision;
     this.patch({
       device,
+      activityError: undefined,
       preview: false,
       ready: true,
       online: false,
@@ -301,6 +313,10 @@ export class AppStore {
       void this.activity().finally(() => this.schedulePoll(rev));
     }, 5000);
   }
+  async retryChats() {
+    if (this.state.preview || this.state.online) await this.refreshSessions();
+    else await this.resume();
+  }
   async refreshSessions(more = false) {
     const api = this.api,
       rev = this.clientRevision,
@@ -368,6 +384,7 @@ export class AppStore {
       if (rev === this.clientRevision && sessions === this.state.sessions)
         this.patch({
           ...result,
+          activityError: undefined,
           selected:
             result.sessions.find((s) => s.id === this.state.selected?.id) ??
             this.state.selected,
@@ -375,6 +392,9 @@ export class AppStore {
     } catch (e) {
       if (rev !== this.clientRevision || this.suspended || this.disposed)
         return;
+      this.patch({
+        activityError: e instanceof Error ? e.message : "Activity unavailable",
+      });
       if (e instanceof ApiError && e.status === 401) this.fail(e);
       else if (
         !(e instanceof ApiError) ||
@@ -384,7 +404,8 @@ export class AppStore {
         this.patch({
           online: false,
           error: undefined,
-          notice: "Desktop is offline or reconnecting. Your draft is saved.",
+          notice:
+            "Desktop is offline or reconnecting. Check that BharatCode Desktop is open.",
         });
         this.scheduleHealth(rev);
       }
@@ -407,7 +428,7 @@ export class AppStore {
       this.patch({ sessions: [created, ...this.state.sessions] });
       await this.openConversation(created.id);
     } catch (e) {
-      if (rev === this.clientRevision) this.fail(e);
+      if (rev === this.clientRevision) this.fail(e, "Create delivery unknown");
     }
   }
   async openConversation(id: string) {
@@ -420,8 +441,9 @@ export class AppStore {
     let saved;
     try {
       saved = await this.persistence.read(device.id, id);
-    } catch (error) {
-      if (rev === this.conversationRevision) this.fail(error);
+    } catch {
+      if (rev === this.conversationRevision)
+        this.fail(new Error("Local history unavailable"));
       return;
     }
     if (rev !== this.conversationRevision) return;
@@ -686,7 +708,7 @@ export class AppStore {
       return;
     }
     this.patch({
-      notice: "Reconnecting conversation updates. Your draft is saved.",
+      notice: "Reconnecting conversation updates…",
     });
     this.retry = setTimeout(() => {
       if (!this.context(rev)) return;
@@ -741,7 +763,8 @@ export class AppStore {
       return;
     const rev = this.conversationRevision,
       text = draft.trim(),
-      pending = this.state.pending ?? {
+      previousPending = this.state.pending,
+      pending = previousPending ?? {
         id: this.id(),
         text,
         state: "pending" as const,
@@ -754,10 +777,12 @@ export class AppStore {
       return;
     }
     this.patch({ sending: true, pending, error: undefined });
+    let dispatched = false;
     let admitted = false;
     try {
       await this.persistence.savePending(device.id, selected.id, pending);
       if (!this.context(rev)) return;
+      dispatched = true;
       await api.request("POST", `/api/session/${selected.id}/prompt`, {
         body: { id: pending.id, prompt: { text } },
         signal: this.conversation.signal,
@@ -773,7 +798,14 @@ export class AppStore {
       await this.loadMessages(rev);
     } catch (e) {
       if (this.context(rev)) {
-        if (e instanceof ApiError && e.status === 401) this.fail(e);
+        if (!dispatched)
+          this.patch({
+            error: "Outgoing message storage unavailable",
+            pending: previousPending,
+          });
+        else if (!admitted && e instanceof ApiError && e.status === 409)
+          this.patch({ error: "Prompt delivery conflict" });
+        else if (e instanceof ApiError && e.status === 401) this.fail(e);
         else
           this.patch({
             error: admitted
@@ -799,7 +831,7 @@ export class AppStore {
         await this.activity();
       }
     } catch (e) {
-      if (this.context(rev)) this.fail(e);
+      if (this.context(rev)) this.fail(e, "Stop delivery unknown");
     }
   }
   async configuration(kind: "agent" | "model") {
@@ -871,7 +903,7 @@ export class AppStore {
           this.patch({ notice: "Resolved on Desktop" });
           return true;
         }
-        this.fail(e);
+        this.fail(e, "Approval delivery unknown");
       }
       return false;
     } finally {

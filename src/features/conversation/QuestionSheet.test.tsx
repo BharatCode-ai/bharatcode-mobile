@@ -44,7 +44,9 @@ test("a single-choice question replaces custom text and submits only the chosen 
     screen.getByLabelText("Answer: Which approach?"),
     "Custom",
   );
-  await fireEvent.press(screen.getByLabelText("☐ First"));
+  await fireEvent.press(
+    screen.getByRole("radio", { name: "First", checked: false }),
+  );
   await fireEvent.press(screen.getByLabelText("Send answer"));
   await waitFor(() =>
     expect(decide).toHaveBeenCalledWith(request, [["First"]]),

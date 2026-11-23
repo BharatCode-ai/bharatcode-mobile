@@ -1,9 +1,13 @@
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
+import * as Clipboard from "expo-clipboard";
+import { Linking } from "react-native";
 import { Message } from "./Message";
 import type { ChatMessage } from "../../domain/types";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
-jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn() }));
+jest.mock("expo-clipboard", () => ({
+  setStringAsync: jest.fn(async () => {}),
+}));
 
 function textViews(tree: unknown): number {
   if (!tree || typeof tree !== "object") return 0;
@@ -85,3 +89,61 @@ test.each([
     }
   },
 );
+
+test("the reply, expanded code and expanded tool actions copy their own complete payloads", async () => {
+  const code = "const result = 42;\n";
+  const text = "Here is the result.\n\n```typescript\n" + code + "```";
+  const output = "a".repeat(4200);
+  const ui = await render(
+    <Message
+      message={{
+        id: "r",
+        role: "assistant",
+        text,
+        tools: [
+          {
+            id: "t",
+            name: "Read file",
+            status: "completed",
+            input: "index.ts",
+            output,
+          },
+        ],
+      }}
+    />,
+  );
+  await fireEvent.press(ui.getByLabelText("Copy reply"));
+  expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(text);
+  await fireEvent.press(ui.getByLabelText("Expand"));
+  await fireEvent.press(ui.getByLabelText("Copy code"));
+  expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(code);
+  await fireEvent.press(ui.getByLabelText("Close"));
+  await fireEvent.press(ui.getByLabelText("Read file · completed"));
+  await fireEvent.press(ui.getByLabelText("View full tool output"));
+  await fireEvent.press(ui.getByLabelText("Copy tool output"));
+  expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(
+    "Input\nindex.ts\n\nOutput\n" + output,
+  );
+  await fireEvent.press(ui.getByLabelText("Close"));
+  await fireEvent.press(ui.getByLabelText("Read file · completed"));
+  expect(ui.queryByLabelText("View full tool output")).toBeNull();
+});
+test("a reply link opens its displayed HTTP destination", async () => {
+  const launch = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+  try {
+    const ui = await render(
+      <Message
+        message={{
+          id: "link",
+          role: "assistant",
+          text: "[Read docs](https://example.org/docs)",
+          tools: [],
+        }}
+      />,
+    );
+    await fireEvent.press(ui.getByText("Read docs"));
+    expect(launch).toHaveBeenCalledWith("https://example.org/docs");
+  } finally {
+    launch.mockRestore();
+  }
+});

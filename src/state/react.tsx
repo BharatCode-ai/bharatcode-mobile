@@ -83,7 +83,9 @@ export function AppProvider({ children }: PropsWithChildren) {
         }}
       >
         <Text style={{ color: "#F2F0E9", fontFamily: "Inter", fontSize: 16 }}>
-          {error ?? "Opening BharatCode…"}
+          {error
+            ? "Couldn’t open local storage. Try opening BharatCode again."
+            : "Opening BharatCode…"}
         </Text>
         {error && (
           <Pressable

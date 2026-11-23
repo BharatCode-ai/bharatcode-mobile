@@ -25,9 +25,28 @@ export function session(raw: Json): SessionSummary {
 const text = (v: unknown) =>
   typeof v === "string" ? v : JSON.stringify(v ?? "", null, 2);
 export function message(raw: Json): ChatMessage {
-  const content = list(raw.content);
+  const parts = list(raw.content);
+  const failure =
+    raw.type === "assistant"
+      ? parts.find(
+          (p) =>
+            p.id === raw.id + "_error" &&
+            (p.replyIssue ||
+              (typeof p.text === "string" &&
+                p.text.startsWith("The computer reported: "))),
+        )
+      : undefined;
+  const content = failure ? parts.filter((p) => p !== failure) : parts;
   return {
     id: String(raw.id),
+    ...(failure
+      ? {
+          replyIssue:
+            typeof failure.replyIssue === "string"
+              ? failure.replyIssue
+              : "interrupted",
+        }
+      : {}),
     role: String(raw.type ?? "assistant"),
     text:
       typeof raw.text === "string"

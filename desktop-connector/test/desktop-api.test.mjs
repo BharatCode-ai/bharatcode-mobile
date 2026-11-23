@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createDesktopAPI } from '../src/desktop-api.mjs'
+import { createDesktopAPI, desktopMessage } from '../src/desktop-api.mjs'
 
 for (const created of [undefined, 999, 1000, Date.now() + 3_600_000]) {
   test(`recovery fence blocks unknown old delivery across restart, created=${created}`, async t => {
@@ -203,4 +203,14 @@ test('confirmed mobile selections are consumed and a later Desktop choice wins',
   current={...current,agent:'plan',model:{id:'desktop_B',providerID:'provider'}}
   await api.handle('POST','/api/session/ses_one/prompt',{id:'msg_second',prompt:{text:'Run'}})
   assert.equal(prompts[0].model.modelID,'mobile_A');assert.equal(prompts[1].model.modelID,'desktop_B');assert.equal(prompts[1].agent,'plan')
+})
+
+test('partial replies keep their text and provider failures carry only an authored summary', () => {
+  const cases = [[402,'billing'],[403,'access'],[429,'busy'],[529,'busy'],[500,'interrupted']]
+  for (const [statusCode, reason] of cases) {
+    const reply = desktopMessage({info:{id:'m',role:'assistant',error:{name:'APIError',data:{statusCode,message:'private provider diagnostic'}}},parts:[{type:'text',id:'p',text:'partial reply'}]})
+    assert.equal(reply.content[0].text, 'partial reply')
+    assert.equal(reply.content.at(-1).replyIssue, reason)
+    assert.ok(!JSON.stringify(reply).includes('private provider diagnostic'))
+  }
 })

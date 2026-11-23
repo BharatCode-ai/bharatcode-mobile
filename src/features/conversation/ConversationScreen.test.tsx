@@ -1,3 +1,4 @@
+import * as Clipboard from "expo-clipboard";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import ConversationScreen from "./ConversationScreen";
 import { StoreProvider } from "../../state/react";
@@ -11,10 +12,17 @@ import { API } from "../../domain/types";
 const MarkdownIt = jest.requireActual("markdown-it") as {
   prototype: { parse: (...args: unknown[]) => unknown };
 };
-const mockRouter = { push: jest.fn(), replace: jest.fn() };
+const mockRouter = {
+  push: jest.fn(),
+  replace: jest.fn(),
+  setParams: jest.fn(),
+};
+let mockRoute: { id: string; mode?: string; request?: string } = {
+  id: "ses_checkout",
+};
 jest.mock("expo-router", () => ({
   useRouter: () => mockRouter,
-  useLocalSearchParams: () => ({ id: "ses_checkout" }),
+  useLocalSearchParams: () => mockRoute,
 }));
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("react-native-safe-area-context", () => ({
@@ -52,6 +60,14 @@ test("the visible composer sends its current text and renders the sample reply",
   expect(store.getSnapshot().draft).toBe("");
   expect(screen.getByText(/This is a sample workspace/)).toBeTruthy();
   expect(screen.getByLabelText("View working changes")).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText("Add context"));
+  jest
+    .mocked(Clipboard.getStringAsync)
+    .mockRejectedValueOnce(new Error("native clipboard diagnostic"));
+  await fireEvent.press(screen.getByLabelText("Paste from clipboard"));
+  expect(await screen.findByText("Clipboard unavailable")).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText("Paste from clipboard"));
+  await waitFor(() => expect(store.getSnapshot().draft).toBe("context"));
   await screen.unmount();
   store.dispose();
 });
@@ -282,4 +298,48 @@ test("unmounting while cached history is loading cancels the opening conversatio
   expect(store.getSnapshot().selected).toBeUndefined();
   expect(store.getSnapshot().conversationReady).toBe(false);
   store.dispose();
+});
+
+test("switching from chat to control keeps the draft and resolves exactly one request", async () => {
+  const store = new AppStore({
+    persistence: new ConversationStore(new MemoryDatabase()),
+    credentials: {
+      get: async () => undefined,
+      set: async () => {},
+      remove: async () => {},
+    },
+  });
+  mockRoute = { id: "ses_auth" };
+  await store.enterPreview();
+  const view = () => (
+    <StoreProvider store={store}>
+      <ConversationScreen />
+    </StoreProvider>
+  );
+  const ui = await render(view());
+  try {
+    await waitFor(() =>
+      expect(store.getSnapshot().conversationReady).toBe(true),
+    );
+    await fireEvent.changeText(
+      ui.getByLabelText("Message BharatCode"),
+      "Review the result",
+    );
+    await fireEvent.press(ui.getByLabelText("Open Desktop Control"));
+    expect(mockRouter.setParams).toHaveBeenCalledWith({ mode: "control" });
+    mockRoute = { ...mockRoute, mode: "control", request: "per_sample" };
+    await ui.rerender(view());
+    expect(ui.getByText("Session activity")).toBeTruthy();
+    expect(ui.getByDisplayValue("Review the result")).toBeTruthy();
+    expect(ui.getAllByLabelText("Allow once")).toHaveLength(1);
+    await fireEvent.press(ui.getByLabelText("Allow once"));
+    await waitFor(() => expect(ui.queryByLabelText("Allow once")).toBeNull());
+    expect(ui.getByLabelText("Answer question")).toBeTruthy();
+    await fireEvent.press(ui.getByLabelText("Open chat view"));
+    expect(mockRouter.setParams).toHaveBeenCalledWith({ mode: "chat" });
+  } finally {
+    await ui.unmount();
+    mockRoute = { id: "ses_checkout" };
+    store.dispose();
+  }
 });

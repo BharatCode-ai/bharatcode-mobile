@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Clipboard from "expo-clipboard";
+import { useCopyText } from "../../design/use-copy-text";
 import { useResource } from "../../state/use-resource";
 import {
   Button,
   Busy,
+  IssueCard,
   Empty,
   Frame,
   Header,
@@ -22,8 +23,8 @@ export default function ChangesScreen() {
   const [index, setIndex] = useState(0),
     [wrap, setWrap] = useState(false),
     [picker, setPicker] = useState(false),
-    [attempt, setAttempt] = useState(0),
-    [copied, setCopied] = useState(false);
+    [attempt, setAttempt] = useState(0);
+  const { copied, copyFailed, copy, resetCopy } = useCopyText();
   const load = useCallback(async () => {
     if (store.getSnapshot().selected?.id !== id)
       await store.openConversation(id);
@@ -39,9 +40,9 @@ export default function ChangesScreen() {
           key={i}
           style={{
             backgroundColor: line.startsWith("+")
-              ? "#62D7850C"
+              ? "#62D78518"
               : line.startsWith("-")
-                ? "#FF8B810C"
+                ? "#FF8B8118"
                 : "transparent",
             flexDirection: "row",
             gap: 12,
@@ -86,15 +87,11 @@ export default function ChangesScreen() {
       {loading ? (
         <Busy />
       ) : error ? (
-        <Empty
-          title="Changes unavailable"
-          detail={error}
-          action={
-            <Button
-              title="Retry changes"
-              onPress={() => setAttempt((v) => v + 1)}
-            />
-          }
+        <IssueCard
+          message={error}
+          fallback="Couldn’t load changes"
+          actionLabel="Retry changes"
+          onAction={() => setAttempt((v) => v + 1)}
         />
       ) : !changes.length ? (
         <Empty
@@ -116,18 +113,33 @@ export default function ChangesScreen() {
               />
               <Button
                 title={copied ? "Copied" : "Copy diff"}
-                onPress={() =>
-                  void Clipboard.setStringAsync(change?.patch ?? "").then(() =>
-                    setCopied(true),
-                  )
-                }
+                onPress={() => void copy(change?.patch ?? "")}
               />
             </View>
-            <Txt muted>
-              Read-only working-tree diff. Changes remain on your computer.
-            </Txt>
+            <View style={s.row}>
+              {copyFailed && (
+                <IssueCard
+                  message="Clipboard unavailable"
+                  fallback="Couldn’t copy text"
+                />
+              )}
+              <Txt muted>Working tree</Txt>
+              {change?.additions != null && (
+                <Txt style={[s.mono, { color: C.green }]}>
+                  +{change.additions}
+                </Txt>
+              )}
+              {change?.deletions != null && (
+                <Txt style={[s.mono, { color: C.red }]}>
+                  −{change.deletions}
+                </Txt>
+              )}
+            </View>
           </View>
-          <ScrollView>
+          <ScrollView
+            style={{ borderTopWidth: 1, borderColor: C.border }}
+            contentContainerStyle={{ paddingVertical: 10 }}
+          >
             {change?.patch ? (
               wrap ? (
                 lines
@@ -153,7 +165,7 @@ export default function ChangesScreen() {
             title={c.file}
             onPress={() => {
               setIndex(i);
-              setCopied(false);
+              resetCopy();
               setPicker(false);
             }}
           />
