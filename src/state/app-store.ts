@@ -280,6 +280,7 @@ export class AppStore {
         "Desktop identity or protocol did not match this pairing. Pair again.",
       );
     }
+    clearTimeout(this.retry);
     this.replay = record(result.capabilities).replay === true;
     this.patch({ online: true, error: undefined, notice: undefined });
     await this.refreshSessions();
@@ -356,6 +357,8 @@ export class AppStore {
       if (rev === this.clientRevision && requestID === this.searchRevision) {
         this.patch({ online: false });
         this.fail(e);
+        if (!this.state.preview && isConnectionFailure(e))
+          this.scheduleHealth(rev);
       }
     } finally {
       if (rev === this.clientRevision && requestID === this.searchRevision)
@@ -396,11 +399,7 @@ export class AppStore {
         activityError: e instanceof Error ? e.message : "Activity unavailable",
       });
       if (e instanceof ApiError && e.status === 401) this.fail(e);
-      else if (
-        !(e instanceof ApiError) ||
-        e.status >= 500 ||
-        e.status === 408
-      ) {
+      else if (isConnectionFailure(e)) {
         this.patch({
           online: false,
           error: undefined,
@@ -960,13 +959,24 @@ export class AppStore {
         try {
           if (Number(claim.expiresAt ?? payload.expiresAt) <= this.now())
             throw new Error("Pairing code expired. Refresh it on Desktop.");
-          const result = await api.request<Json>(
-            "POST",
-            "/mobile/v1/claim/status",
-            {
-              body: { claimID: claim.claimID, claimSecret: claim.claimSecret },
-            },
-          );
+          let result: Json;
+          try {
+            result = await api.request<Json>(
+              "POST",
+              "/mobile/v1/claim/status",
+              {
+                body: {
+                  claimID: claim.claimID,
+                  claimSecret: claim.claimSecret,
+                },
+              },
+            );
+          } catch (e) {
+            if (!isConnectionFailure(e)) throw e;
+            if (rev === this.pairRevision)
+              this.pairTimer = setTimeout(() => void poll(), 2000);
+            return;
+          }
           if (rev !== this.pairRevision) return;
           if (result.state === "declined")
             throw new Error("Connection declined on your computer.");
@@ -1104,4 +1114,10 @@ export class AppStore {
     this.api?.close();
     this.listeners.clear();
   }
+}
+
+function isConnectionFailure(error: unknown) {
+  return (
+    !(error instanceof ApiError) || error.status >= 500 || error.status === 408
+  );
 }

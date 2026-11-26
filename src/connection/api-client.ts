@@ -72,29 +72,54 @@ export class ApiClient implements API {
         body:
           options.body === undefined ? undefined : JSON.stringify(options.body),
       });
-      if (!response.ok) {
-        await response.body?.cancel();
-        if (response.status === 403 && path.endsWith("/files"))
-          throw new ApiError(403, "File unavailable on mobile");
-        throw new ApiError(
-          response.status,
-          path.startsWith("/mobile/v1/claim") &&
-            [401, 410].includes(response.status)
-            ? "Pairing code expired or used. Get a fresh code on Desktop."
-            : response.status === 401
-              ? "This phone is no longer authorized. Pair again."
-              : response.status === 404
-                ? "This feature is unavailable or was resolved on Desktop."
-                : `The computer could not complete that request (${response.status}).`,
-        );
-      }
+      reader = response.body?.getReader();
       if (
         response.redirected ||
         (response.url && new URL(response.url).origin !== this.origin)
       )
         throw new ApiError(502, "Unexpected connection redirect");
-      if (!response.body) return;
-      reader = response.body.getReader();
+      if (!response.ok) {
+        const claim =
+          path === "/mobile/v1/claim" || path === "/mobile/v1/claim/status";
+        if (response.status === 401) {
+          // Older gateways can forward a sidecar's 401. Only the gateway's own
+          // authorization errors describe the phone's pairing or its claim.
+          const reason = await readErrorReason(reader);
+          if (
+            claim &&
+            (reason === "Pairing code expired or used" ||
+              reason === "Invalid pairing claim")
+          )
+            throw new ApiError(
+              401,
+              "Pairing code expired or used. Get a fresh code on Desktop.",
+            );
+          if (
+            !claim &&
+            (reason === "Device authorization required" ||
+              reason === "Device authorization revoked")
+          )
+            throw new ApiError(
+              401,
+              "This phone is no longer authorized. Pair again.",
+            );
+          throw new ApiError(
+            502,
+            "Could not reach the Desktop connection service.",
+          );
+        }
+        if (response.status === 403 && path.endsWith("/files"))
+          throw new ApiError(403, "File unavailable on mobile");
+        throw new ApiError(
+          response.status,
+          claim && response.status === 410
+            ? "Pairing code expired or used. Get a fresh code on Desktop."
+            : response.status === 404
+              ? "This feature is unavailable or was resolved on Desktop."
+              : `The computer could not complete that request (${response.status}).`,
+        );
+      }
+      if (!reader) return;
       let size = 0;
       while (true) {
         arm(stream ? 45_000 : 20_000);
@@ -167,5 +192,29 @@ export class ApiClient implements API {
   close() {
     for (const c of this.active) c.abort();
     this.active.clear();
+  }
+}
+
+async function readErrorReason(
+  reader?: ReadableStreamDefaultReader<Uint8Array>,
+) {
+  if (!reader) return;
+  const decoder = new TextDecoder();
+  let text = "",
+    size = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > 1024) return;
+      text += decoder.decode(value, { stream: true });
+    }
+    const body: { error?: unknown } | null = JSON.parse(
+      text + decoder.decode(),
+    );
+    return body?.error;
+  } catch {
+    return undefined;
   }
 }

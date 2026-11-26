@@ -646,3 +646,78 @@ test("a failed decision refreshes as a read without submitting another decision"
   ).toHaveLength(1);
   store.dispose();
 });
+
+test("session load retries without clearing the saved pairing", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  try {
+    const original = api.request;
+    let unavailable = true;
+    api.request = async (...args) => {
+      if (unavailable && args[1] === "/api/session")
+        throw new ApiError(502, "Desktop server authorization is unavailable");
+      return original(...args);
+    };
+    await store.connectDevice(device);
+    expect(store.getSnapshot()).toMatchObject({
+      device,
+      online: false,
+      errorStatus: 502,
+    });
+    unavailable = false;
+    await jest.advanceTimersByTimeAsync(4100);
+    expect(store.getSnapshot()).toMatchObject({ device, online: true });
+    expect(store.getSnapshot().sessions).toHaveLength(1);
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
+
+test("a dropped approval response is retried with the same claim", async () => {
+  jest.useFakeTimers();
+  const { store, api } = setup();
+  try {
+    const original = api.request;
+    let polls = 0;
+    api.request = async <T>(
+      ...args: Parameters<API["request"]>
+    ): Promise<T> => {
+      if (args[1] === "/mobile/v1/claim")
+        return {
+          claimID: "test-claim",
+          claimSecret: "test-secret",
+          confirmation: "123456",
+          expiresAt: Date.now() + 60_000,
+        } as T;
+      if (args[1] === "/mobile/v1/claim/status") {
+        expect(args[2]?.body).toEqual({
+          claimID: "test-claim",
+          claimSecret: "test-secret",
+        });
+        if (++polls === 1) throw new ApiError(502, "Connection interrupted");
+        return {
+          state: "approved",
+          token: "test-token",
+          desktop: { id: device.id, name: device.name },
+          device: { id: device.credentialID },
+        } as T;
+      }
+      return original<T>(...args);
+    };
+    await store.pair(
+      "bharatcode://pair?origin=https%3A%2F%2Fpc.tunnel.bharatcode.ai&desktopID=pc_one",
+    );
+    expect(store.getSnapshot().confirmation).toBe("123456");
+    await jest.advanceTimersByTimeAsync(2100);
+    expect(polls).toBe(2);
+    expect(store.getSnapshot()).toMatchObject({
+      device: { id: device.id },
+      online: true,
+      confirmation: undefined,
+    });
+  } finally {
+    store.dispose();
+    jest.useRealTimers();
+  }
+});
